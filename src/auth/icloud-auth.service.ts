@@ -289,9 +289,15 @@ export class IcloudAuthService implements IcloudAuthLike {
    * This replaces the deprecated plaintext `POST /signin`, which Apple now
    * answers with `503 Service Temporarily Unavailable`. The password never
    * leaves the process: only `A`/`M1`/`M2` are transmitted.
+   *
+   * A `GET {AUTH}/authorize/signin` warm-up runs first: it establishes the
+   * server-side OAuth state/cookies the SRP endpoints require — without it Apple
+   * answers `signin/init` with `404 Not Found`.
    */
   private async _signInWithSrp(): Promise<void> {
     const authenticator = new GsaSrpAuthenticator(this.user.accountName);
+
+    await this._authorizeSignin();
 
     const init = await authenticator.getInit();
     const initResp = await this.http.request<ServerSrpInitResponse>(
@@ -313,6 +319,30 @@ export class IcloudAuthService implements IcloudAuthLike {
       params: { isRememberMeEnabled: 'true' },
       data: JSON.stringify({ ...proof, rememberMe: true, trustTokens }),
       headers: this.getAuthHeaders(),
+    });
+  }
+
+  /**
+   * `GET {AUTH}/authorize/signin` — the OAuth widget warm-up. Apple requires
+   * this before the SRP `signin/init`/`signin/complete` calls (it seeds the
+   * server state/cookies they key off); skipping it yields `404` on init. The
+   * HTML body is ignored — only the resulting cookies matter, and they are
+   * captured by the shared cookie jar.
+   */
+  private async _authorizeSignin(): Promise<void> {
+    await this.http.request('GET', `${this.endpoints.AUTH}/authorize/signin`, {
+      params: {
+        frame_id: this.clientId,
+        skVersion: '7',
+        iframeid: this.clientId,
+        client_id: OAUTH.CLIENT_ID,
+        response_type: 'code',
+        redirect_uri: OAUTH.REDIRECT_URI,
+        response_mode: 'web_message',
+        state: this.clientId,
+        authVersion: 'latest',
+      },
+      responseType: 'arraybuffer',
     });
   }
 

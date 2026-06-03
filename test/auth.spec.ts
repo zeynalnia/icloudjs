@@ -369,6 +369,12 @@ describe('China mode (hosts .com.cn) + GLOBAL OAuth redirect', () => {
     let redirectHeader: string | undefined;
     let widgetKeyHeader: string | undefined;
 
+    // OAuth widget warm-up on the CN host (required before signin/init).
+    nock('https://idmsa.apple.com.cn')
+      .get('/appleauth/auth/authorize/signin')
+      .query(true)
+      .reply(200, '<html></html>', { 'Content-Type': 'text/html' });
+
     // Capturing interceptor for the CN SRP signin/init host — captures the host
     // + OAuth headers, returns SRP init data.
     nock('https://idmsa.apple.com.cn')

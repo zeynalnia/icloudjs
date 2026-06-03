@@ -200,6 +200,10 @@ function route(req: ParsedRequest): RouteResult | RouteError | StreamResult {
 
   // AUTH (idmsa) endpoints. ORDER MATTERS: the SRP init/complete sub-paths must
   // be checked before the legacy `signin` catch-all (both contain 'signin').
+  // The OAuth widget warm-up returns HTML (ignored — only its cookies matter).
+  if (u.includes('authorize/signin') && method === 'GET') {
+    return { status: 200, stream: Readable.from(Buffer.from('<html></html>')) };
+  }
   if (u.includes('signin/init') && method === 'POST') {
     return decideSigninInit(body);
   }
