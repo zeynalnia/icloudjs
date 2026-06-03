@@ -8,6 +8,31 @@
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zeynalnia/icloudjs.git"
+  },
+  "homepage": "https://github.com/zeynalnia/icloudjs#readme",
+  "bugs": {
+    "url": "https://github.com/zeynalnia/icloudjs/issues"
+  },
+  "keywords": [
+    "icloud",
+    "pyicloud",
+    "nestjs",
+    "find-my-iphone",
+    "icloud-drive",
+    "icloud-photos",
+    "apple"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "start:cli": "ts-node src/cli/main.ts",
@@ -16,7 +41,8 @@
     "test:watch": "jest --watch",
     "lint": "eslint \"{src,test}/**/*.ts\" --max-warnings 0",
     "lint:fix": "eslint \"{src,test}/**/*.ts\" --fix",
-    "format": "prettier --write \"{src,test}/**/*.ts\""
+    "format": "prettier --write \"{src,test}/**/*.ts\"",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@foxt/js-srp": "^0.0.3-patch2",
