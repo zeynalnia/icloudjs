@@ -485,7 +485,8 @@ DI tokens (exported): `ICLOUD_OPTIONS` (the resolved options) and
 
 **Password (keyring).** `SecretsService` wraps `keytar` with the service name
 `pyicloud://icloud-password` — the **same** service Python's `pyicloud` uses, so
-a password stored by either tool is readable by the other. Key methods:
+a password stored by either tool is readable by the other (with a Windows caveat —
+see [Platform support](#platform-support)). Key methods:
 
 ```ts
 await secrets.passwordExistsInKeyring(username);    // boolean
@@ -497,6 +498,40 @@ await secrets.getPassword(username, interactive?);  // keyring → prompt fallba
 
 `getPassword`'s `interactive` flag defaults to `process.stdout.isTTY` **at call
 time**, so the same code prompts on a terminal and stays silent in a service.
+
+### Platform support
+
+The password store works on **Windows, macOS, and Linux** — `keytar` is a
+cross-platform native addon that talks to each OS's built-in credential vault:
+
+| OS | Backend | Extra system packages |
+|----|---------|-----------------------|
+| **Windows** | Windows Credential Manager | None (prebuilt binary) |
+| **macOS** | Keychain | None (prebuilt binary) |
+| **Linux** | Secret Service / `libsecret` | `libsecret-1-dev` + an unlocked keyring (GNOME Keyring, KWallet, …) |
+
+Two caveats worth knowing:
+
+- **Native module.** `keytar` ships prebuilt binaries for current Node LTS
+  releases (covering the supported Node 18–24 range), so `npm install` needs no
+  compiler on Windows or macOS. On a very new/unusual Node where no prebuilt
+  matches, it falls back to compiling from source (Windows then needs the
+  [windows-build-tools](https://github.com/nodejs/node-gyp#on-windows)
+  toolchain). `keytar` itself is archived/unmaintained, so pin Node to a version
+  with a published prebuilt if you want to avoid the compile path.
+- **Cross-tool (Python ↔ JS) sharing is only guaranteed on macOS/Linux.** Both
+  this library and Python `pyicloud` use the **same** service name
+  (`pyicloud://icloud-password`), so within jsicloud — and between jsicloud and
+  pyicloud on macOS/Linux — credentials round-trip cleanly. On **Windows**,
+  Python's `keyring` (WinVaultKeyring) and `keytar` both use Credential Manager
+  but format the underlying *target name* differently, so a password saved by
+  the Python tool may not be found by this library under the same username (and
+  vice versa). Storing **and** reading through jsicloud is always consistent on
+  every platform; it is only the Python↔JS hand-off on Windows that isn't.
+
+If keyring access is unavailable or undesirable in your environment, skip it
+entirely: pass `password` in `IcloudModuleOptions` (or to `IcloudAuthService.create`)
+and never call the `*InKeyring` methods.
 
 **Session & cookies (disk).** A `SessionStore` persists state under `cookieDir`:
 
