@@ -2,17 +2,24 @@ name: Publish to npm
 
 # Publishes the package to npm whenever a GitHub Release is published.
 #
-# Setup (one-time):
-#   1. Create an npm "Automation" access token (npmjs.com → Access Tokens).
-#   2. Add it as a repository secret named NPM_TOKEN
-#      (Settings → Secrets and variables → Actions → New repository secret).
+# Auth: npm Trusted Publishing (OIDC) — NO stored token. One-time setup on npm:
+#   npmjs.com → package "jsicloud" → Settings → Trusted Publisher → add:
+#     Publisher = GitHub Actions
+#     Organization/user = zeynalnia
+#     Repository        = icloudjs
+#     Workflow filename = npm-publish.yml
+# After configuring it there, you can delete the NPM_TOKEN repo secret.
 #
-# Then: create a Release (the tag, e.g. v1.2.3, must match package.json "version").
+# Create a Release whose tag (e.g. v1.2.3) matches package.json "version".
 
 on:
   release:
     types: [published]
   workflow_dispatch: {} # allow a manual publish of the current package.json version
+
+permissions:
+  contents: read
+  id-token: write # required for npm Trusted Publishing (OIDC)
 
 jobs:
   publish:
@@ -27,6 +34,10 @@ jobs:
           node-version: 20
           registry-url: https://registry.npmjs.org
           cache: npm
+
+      # Trusted Publishing (OIDC) requires npm >= 11.5.1; the runner ships 10.x.
+      - name: Upgrade npm (OIDC support)
+        run: npm install -g npm@latest
 
       # keytar's native binding loads libsecret on Linux; the test suite mocks
       # keytar but jest's automock still dlopens the real module, which needs
@@ -57,7 +68,11 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Publish to npm
+      # No NODE_AUTH_TOKEN: npm authenticates via the GitHub OIDC token against
+      # the trusted publisher configured on npm. Provenance is disabled because
+      # this repository is private (provenance attestation requires a public
+      # repo); remove NPM_CONFIG_PROVENANCE to enable it if the repo goes public.
+      - name: Publish to npm (Trusted Publishing)
         run: npm publish
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: false
