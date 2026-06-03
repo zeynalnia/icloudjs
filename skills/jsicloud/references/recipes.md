@@ -35,6 +35,7 @@ export async function login(accountName: string, password?: string): Promise<Icl
   }
 
   if (auth.requires2fa) {
+    await auth.requestTwoFactorCode();   // REQUIRED: deliver the code (push + SMS) — API sessions aren't auto-sent one
     const code = await prompt('Enter the 6-digit 2FA code: ');
     if (!(await auth.validate2faCode(code))) throw new Error('Wrong 2FA code');
     await auth.trustSession();           // persist trust so future runs skip the prompt
@@ -339,7 +340,8 @@ export class AppModule {}
 
 > The module authenticates at init. If a 2FA/2SA challenge is pending you must
 > still run the verification flow on the injected `IcloudAuthService` (e.g. in an
-> `onApplicationBootstrap` hook) before service calls succeed.
+> `onApplicationBootstrap` hook) before service calls succeed — and for HSA2 call
+> `await auth.requestTwoFactorCode()` first to have Apple deliver the code.
 
 ---
 

@@ -140,6 +140,7 @@ const auth = await IcloudAuthService.create(
 
 // `create` returns once authentication has completed.
 if (auth.requires2fa) {
+  await auth.requestTwoFactorCode(); // deliver the code (push + SMS) — API sessions aren't auto-sent one
   const ok = await auth.validate2faCode('123456');
   if (!ok) throw new Error('Wrong 2FA code');
 }
@@ -606,8 +607,11 @@ try {
     new SecretsService(),
   );
 
-  if (auth.requires2fa && !(await auth.validate2faCode('123456'))) {
-    throw new Error('Wrong 2FA code'); // returns false, doesn't throw on its own
+  if (auth.requires2fa) {
+    await auth.requestTwoFactorCode(); // deliver the code (push + SMS) before validating
+    if (!(await auth.validate2faCode('123456'))) {
+      throw new Error('Wrong 2FA code'); // returns false, doesn't throw on its own
+    }
   }
 
   const fmip = await auth.findMyiPhone();

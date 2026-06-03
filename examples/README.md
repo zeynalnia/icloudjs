@@ -68,8 +68,10 @@ import from `../src`, so they always reflect the current source.
 
 Apple almost always requires a **second authentication factor**:
 
-- **2FA (HSA2)** — the modern flow: a 6-digit code is pushed to your trusted
-  Apple devices. Handled via `auth.requires2fa` → `auth.validate2faCode(code)`.
+- **2FA (HSA2)** — the modern flow. The client signs in with SRP; Apple does
+  **not** auto-deliver a code to API sessions, so you call
+  `auth.requires2fa` → `auth.requestTwoFactorCode()` (push + SMS) →
+  `auth.validate2faCode(code)`.
 - **2SA (HSA1 / legacy)** — the older trusted-device flow:
   `auth.requires2sa` → pick a device from `await auth.trustedDevices` →
   `auth.sendVerificationCode(device)` → `auth.validateVerificationCode(device, code)`.

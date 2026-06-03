@@ -105,8 +105,10 @@ IcloudModule.forRootAsync({
 | `password` | `string` | no | If omitted, resolved from the keyring by `accountName` (throws if absent and non-interactive) |
 | `cookieDir` | `string` | no | Session/cookie dir. Default `<os.tmpdir()>/jsicloud/<os-username>` (mode `0o700`) |
 | `chinaMainland` | `boolean` | no | `false`. When `true`, AUTH/HOME/SETUP hosts switch to `.com.cn` (OAuth widget stays global) |
-| `verify` | `boolean \| string` | no | `false` disables TLS verification (testing only) |
+| `verify` | `boolean \| string` | no | `false` disables TLS verification (testing only); a string is a path to a CA-bundle file |
 | `clientId` | `string` | no | Persisted client id, else a fresh `auth-<uuidv1>` |
+| `withFamily` | `boolean` | no | `true`. Include family-shared devices in Find My iPhone refreshes |
+| `userAgent` | `string` | no | Overrides the default browser-like UA. Apple may `503` non-browser User-Agents |
 
 ## MANDATORY auth / 2FA / 2SA / trust flow
 
@@ -124,7 +126,10 @@ const auth = await IcloudAuthService.create(
 );
 
 if (auth.requires2fa) {
-  // HSA2 (two-factor): user enters the 6-digit code from a trusted device.
+  // HSA2 (two-factor). FIRST ask Apple to DELIVER a code — an API/SRP session
+  // is NOT sent one automatically (unlike a browser). This pushes the code to
+  // trusted devices and sends an SMS fallback. Skipping it = user gets nothing.
+  await auth.requestTwoFactorCode();
   const code = await promptUser('6-digit 2FA code: ');
   const ok = await auth.validate2faCode(code);   // true = accepted
   if (!ok) throw new Error('Wrong 2FA code');
@@ -144,6 +149,10 @@ if (auth.requires2fa) {
 ```
 
 Key facts:
+- **HSA2 codes are not auto-delivered.** Apple does not push a code for API
+  (non-browser) sessions after the SRP sign-in, so you **MUST call
+  `await auth.requestTwoFactorCode()`** (trusted-device push + SMS fallback)
+  before prompting for the 2FA code. It is a no-op when 2FA isn't required.
 - `auth.requires2fa` / `auth.requires2sa` / `auth.isTrustedSession` are **sync
   getters** (no `await`).
 - `auth.trustedDevices` is a **getter that RETURNS a Promise** — write
@@ -262,6 +271,13 @@ try {
 - **China mainland:** set `chinaMainland: true` to use `.com.cn` AUTH/HOME/SETUP
   hosts. The OAuth widget/redirect stays global — that is correct, do not change.
 - **`verify: false`** disables TLS verification — testing only, never production.
+  A string `verify` is a CA-bundle file path.
+- **Auth is SRP-based.** Sign-in is Apple's modern SRP handshake (handled
+  internally; the password never leaves the process). If sign-in fails with
+  `503 Service Temporarily Unavailable`, Apple is throttling/blocking the request
+  (often after rapid retries) — back off and retry; a browser-like `User-Agent`
+  is already sent (override via `userAgent`). Remember `requestTwoFactorCode()`
+  for HSA2 (codes are not auto-delivered).
 - **Streams everywhere:** downloads/uploads use Node `Readable` streams, not
   Buffers. `DriveService.sendFile`/`upload` need an explicit byte `size`.
 - **Calendar/Contacts/Ubiquity are read-only** (Calendar & Contacts are
@@ -279,6 +295,7 @@ try {
 - `authenticate(opts?): Promise<void>` · `getWebserviceUrl(key): string`
 - getters: `requires2fa` · `requires2sa` · `isTrustedSession` · `withFamily` · `user` · `data` · `params`
 - `trustedDevices: Promise<...[]>` (getter→Promise)
+- `requestTwoFactorCode(): Promise<void>` (HSA2 push + SMS — call before `validate2faCode`)
 - `sendVerificationCode(device)` · `validateVerificationCode(device, code)` · `validate2faCode(code)` · `trustSession()` → `Promise<boolean>`
 - service accessors: `drive` `files` `account` `calendar` `contacts` (getters); `photos()` `reminders()` `findMyiPhone()` (async)
 

@@ -39,8 +39,10 @@ const ICLOUD_MODULE_OPTIONS: symbol  // Symbol('ICLOUD_MODULE_OPTIONS')
 | `password` | `string` | no | keyring lookup by `accountName`, else interactive prompt |
 | `cookieDir` | `string` | no | `<os.tmpdir()>/jsicloud/<os-username>` (mode `0o700`) |
 | `chinaMainland` | `boolean` | no | `false` (true → `.com.cn` AUTH/HOME/SETUP; OAuth stays global) |
-| `verify` | `boolean \| string` | no | `undefined` (`false` disables TLS verify — testing only) |
+| `verify` | `boolean \| string` | no | `undefined` (`false` disables TLS verify — testing only; string = CA-bundle path) |
 | `clientId` | `string` | no | persisted `client_id`, else `auth-<uuidv1>` |
+| `withFamily` | `boolean` | no | `true` (include family-shared devices in Find My iPhone) |
+| `userAgent` | `string` | no | default browser-like UA (Apple may `503` non-browser UAs) |
 
 ---
 
@@ -80,6 +82,7 @@ get requires2sa(): boolean        // [local] HSA1/legacy required
 get isTrustedSession(): boolean   // [local]
 get trustedDevices(): Promise<Array<Record<string, unknown>>>   // [I/O] getter→Promise: `await auth.trustedDevices`
 
+async requestTwoFactorCode(): Promise<void>   // [I/O] HSA2: deliver code (trusted-device push + SMS). REQUIRED before validate2faCode — API/SRP sessions are NOT auto-sent a code. No-op when !requires2fa.
 async sendVerificationCode(device: Record<string,unknown>): Promise<boolean>                 // [I/O] 2SA
 async validateVerificationCode(device: Record<string,unknown>, code: string): Promise<boolean> // [I/O] 2SA; wrong code (-21669) → false, trusts on success
 async validate2faCode(code: string): Promise<boolean>           // [I/O] 2FA; wrong code (-21669) → false
