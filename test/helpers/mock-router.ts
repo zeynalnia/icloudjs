@@ -33,6 +33,8 @@ import {
   decideSecurityCode,
   decideSendVerificationCode,
   decideSignin,
+  decideSigninInit,
+  decideSigninComplete,
   decideTrust,
   decideValidate,
   decideValidateVerificationCode,
@@ -196,7 +198,14 @@ function route(req: ParsedRequest): RouteResult | RouteError | StreamResult {
     return decideValidate(header(req, 'X-APPLE-WEBAUTH-TOKEN'), FIX.validate());
   }
 
-  // AUTH (idmsa) endpoints.
+  // AUTH (idmsa) endpoints. ORDER MATTERS: the SRP init/complete sub-paths must
+  // be checked before the legacy `signin` catch-all (both contain 'signin').
+  if (u.includes('signin/init') && method === 'POST') {
+    return decideSigninInit(body);
+  }
+  if (u.includes('signin/complete') && method === 'POST') {
+    return decideSigninComplete(body);
+  }
   if (u.includes('signin') && method === 'POST') {
     return decideSignin(body);
   }

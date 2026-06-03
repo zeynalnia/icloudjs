@@ -369,9 +369,10 @@ describe('China mode (hosts .com.cn) + GLOBAL OAuth redirect', () => {
     let redirectHeader: string | undefined;
     let widgetKeyHeader: string | undefined;
 
-    // Capturing interceptor for the CN signin host — replies like decideSignin.
+    // Capturing interceptor for the CN SRP signin/init host — captures the host
+    // + OAuth headers, returns SRP init data.
     nock('https://idmsa.apple.com.cn')
-      .post('/appleauth/auth/signin')
+      .post('/appleauth/auth/signin/init')
       .query(true)
       .reply(function (_uri, _body) {
         signinHost = (this.req as { options?: { host?: string } }).options?.host
@@ -381,15 +382,27 @@ describe('China mode (hosts .com.cn) + GLOBAL OAuth redirect', () => {
         widgetKeyHeader = h['x-apple-widget-key'];
         return [
           200,
-          { authType: 'hsa2' },
           {
-            'Content-Type': 'application/json',
-            'X-Apple-Session-Token': VALID_TOKEN,
-            'X-Apple-ID-Session-Id': SESSION_ID_VALUE,
-            scnt: SCNT_VALUE,
-            'X-Apple-ID-Account-Country': ACCOUNT_COUNTRY_VALUE,
+            iteration: 1000,
+            salt: Buffer.alloc(16, 1).toString('base64'),
+            protocol: 's2k',
+            b: Buffer.alloc(256, 7).toString('base64'),
+            c: 'srp-challenge',
           },
+          { 'Content-Type': 'application/json' },
         ];
+      });
+
+    // signin/complete on the CN host → issue the session token.
+    nock('https://idmsa.apple.com.cn')
+      .post('/appleauth/auth/signin/complete')
+      .query(true)
+      .reply(200, { authType: 'hsa2' }, {
+        'Content-Type': 'application/json',
+        'X-Apple-Session-Token': VALID_TOKEN,
+        'X-Apple-ID-Session-Id': SESSION_ID_VALUE,
+        scnt: SCNT_VALUE,
+        'X-Apple-ID-Account-Country': ACCOUNT_COUNTRY_VALUE,
       });
 
     // accountLogin against the CN setup host → trusted login payload.

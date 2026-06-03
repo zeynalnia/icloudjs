@@ -638,9 +638,12 @@ surfaces Apple's actual reason/code (e.g. `↳ Invalid email/password combinatio
 — Apple responded: Service Temporarily Unavailable (503)`). Use that detail:
 
 - **`503 Service Temporarily Unavailable`** from `idmsa.apple.com` is almost
-  never a wrong password — it is Apple **throttling** or **blocking** the
-  request (often anti-automation, or after several rapid sign-in attempts). Fixes:
-  - The client already sends a browser-like `User-Agent` ([`DEFAULT_USER_AGENT`](./src/constants.ts))
+  never a wrong password. Apple **deprecated the legacy plaintext sign-in** (it
+  now `503`s); this client uses the modern **SRP-6a** handshake
+  (`/signin/init` → `/signin/complete`, via [`@foxt/js-srp`](https://www.npmjs.com/package/@foxt/js-srp)),
+  so that cause is handled. A remaining `503` means Apple is **throttling** or
+  **blocking** the request (anti-automation, or after several rapid attempts):
+  - The client sends a browser-like `User-Agent` ([`DEFAULT_USER_AGENT`](./src/constants.ts))
     because Apple `503`s many non-browser clients. Override it with the
     `userAgent` option if needed.
   - **Wait** several minutes (back off) before retrying; repeated attempts
@@ -701,6 +704,14 @@ the original Python source. Each is covered by a confirming test:
   off `process.stdout.isTTY` when the call is made, not at import time.
 - **Hardened 2FA detection.** `requires2fa` / `requires2sa` are computed
   defensively from the login payload's HSA flags.
+- **Modern SRP-6a sign-in (not in the ported source).** The ported `pyicloud`
+  used the legacy plaintext `POST /signin` (`{accountName, password}`), which
+  Apple now answers with `503`. This client implements the current
+  `POST /signin/init` → `POST /signin/complete` SRP-6a handshake (Apple's GSA
+  variant via [`@foxt/js-srp`](https://www.npmjs.com/package/@foxt/js-srp)): the
+  password never leaves the process — only the SRP public value and the `M1`/`M2`
+  proofs are sent. The browser-like `User-Agent` (overridable via `userAgent`)
+  is sent for the same anti-`503` reason.
 
 Preserved quirks (intentionally matched to Python for compatibility) include the
 OAuth widget staying on the **global** host even in China mode, the Find My

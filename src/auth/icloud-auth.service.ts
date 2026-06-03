@@ -30,6 +30,10 @@ import { v1 as uuidv1 } from 'uuid';
 
 import { BUILD, DEFAULT_USER_AGENT, ENDPOINTS, OAUTH } from '../constants';
 import {
+  GsaSrpAuthenticator,
+  ServerSrpInitResponse,
+} from './gsa-srp';
+import {
   PyiCloudAPIResponseException,
   PyiCloudException,
   PyiCloudFailedLoginException,
@@ -256,23 +260,8 @@ export class IcloudAuthService implements IcloudAuthLike {
     if (!loginSuccessful) {
       this.logger.debug(`Authenticating as ${this.user.accountName}`);
 
-      const data: Record<string, unknown> = {
-        accountName: this.user.accountName,
-        password: this.user.password,
-        rememberMe: true,
-        trustTokens: this.store.sessionData.trust_token
-          ? [this.store.sessionData.trust_token]
-          : [],
-      };
-
-      const headers = this.getAuthHeaders();
-
       try {
-        await this.http.request('POST', `${this.endpoints.AUTH}/signin`, {
-          params: { isRememberMeEnabled: 'true' },
-          data: JSON.stringify(data),
-          headers,
-        });
+        await this._signInWithSrp();
       } catch (error) {
         if (error instanceof PyiCloudAPIResponseException) {
           throw new PyiCloudFailedLoginException(
@@ -288,6 +277,43 @@ export class IcloudAuthService implements IcloudAuthLike {
 
     this.webservices = this.data.webservices ?? {};
     this.logger.debug('Authentication completed successfully');
+  }
+
+  /**
+   * Full sign-in via Apple's GSA SRP-6a handshake (§2.3, modern flow):
+   *   1. `POST {AUTH}/signin/init`  — send the SRP public value `A`, receive
+   *      the server salt/`B`/iteration/protocol/challenge.
+   *   2. `POST {AUTH}/signin/complete?isRememberMeEnabled=true` — prove the
+   *      password with `M1`/`M2` (+ rememberMe + any trust token).
+   *
+   * This replaces the deprecated plaintext `POST /signin`, which Apple now
+   * answers with `503 Service Temporarily Unavailable`. The password never
+   * leaves the process: only `A`/`M1`/`M2` are transmitted.
+   */
+  private async _signInWithSrp(): Promise<void> {
+    const authenticator = new GsaSrpAuthenticator(this.user.accountName);
+
+    const init = await authenticator.getInit();
+    const initResp = await this.http.request<ServerSrpInitResponse>(
+      'POST',
+      `${this.endpoints.AUTH}/signin/init`,
+      { data: JSON.stringify(init), headers: this.getAuthHeaders() },
+    );
+
+    const proof = await authenticator.getComplete(
+      this.user.password,
+      initResp.data,
+    );
+
+    const trustTokens = this.store.sessionData.trust_token
+      ? [this.store.sessionData.trust_token]
+      : [];
+
+    await this.http.request('POST', `${this.endpoints.AUTH}/signin/complete`, {
+      params: { isRememberMeEnabled: 'true' },
+      data: JSON.stringify({ ...proof, rememberMe: true, trustTokens }),
+      headers: this.getAuthHeaders(),
+    });
   }
 
   /** Exchange the harvested `session_token` for the full account payload. */

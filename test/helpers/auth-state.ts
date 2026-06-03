@@ -193,6 +193,44 @@ export function decideSignin(body: Record<string, any>): RouteResult | RouteErro
 }
 
 /**
+ * `POST {AUTH}/signin/init` (SRP) — accept a known account and return
+ * well-formed-but-arbitrary SRP init data (`salt`/`B`/`iteration`/`protocol`).
+ * The mock cannot verify the password (SRP transmits only `A`/`M1`/`M2`), so the
+ * client computes `M1` from this data and the *complete* step issues the token.
+ */
+export function decideSigninInit(body: Record<string, any>): RouteResult | RouteError {
+  const accountName = body?.accountName;
+  if (!VALID_USERS.includes(accountName)) {
+    return { reason: 'Unknown reason' };
+  }
+  return {
+    status: 200,
+    body: {
+      iteration: 1000,
+      salt: Buffer.alloc(16, 1).toString('base64'),
+      protocol: 's2k',
+      b: Buffer.alloc(256, 7).toString('base64'),
+      c: 'srp-challenge',
+    },
+  };
+}
+
+/**
+ * `POST {AUTH}/signin/complete` (SRP) — issue the session token (returned as
+ * `X-Apple-Session-Token`) that gates the subsequent `accountLogin` branch,
+ * exactly as the legacy `decideSignin` did.
+ */
+export function decideSigninComplete(body: Record<string, any>): RouteResult | RouteError {
+  const accountName = body?.accountName;
+  if (!VALID_USERS.includes(accountName)) {
+    return { reason: 'Unknown reason' };
+  }
+  const token = accountName === REQUIRES_2FA_USER ? REQUIRES_2FA_TOKEN : VALID_TOKEN;
+  state.issuedSessionToken = token;
+  return { status: 200, body: { ...AUTH_OK }, headers: authHeaders(token) };
+}
+
+/**
  * `POST {SETUP}/accountLogin` — exchange `dsWebAuthToken` for the full payload.
  * Returns the 2FA login fixture for the 2FA token, else the working login.
  */
