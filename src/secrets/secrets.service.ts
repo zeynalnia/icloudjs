@@ -10,6 +10,7 @@
  */
 import { Injectable } from '@nestjs/common';
 import * as readline from 'readline/promises';
+import { Writable } from 'stream';
 import * as keytar from 'keytar';
 
 import { KEYRING_SERVICE } from '../constants';
@@ -101,15 +102,53 @@ export class SecretsService {
    * Prompt the user for a password on the controlling terminal. Split out so it
    * can be overridden/spied in tests. The entered value is returned verbatim
    * and never logged.
+   *
+   * Security: the typed password is **masked** — it is never echoed to the
+   * screen. The prompt text is written while the output is unmuted, then the
+   * output is muted so `readline`'s character echo (active in terminal mode) is
+   * swallowed. Because `readline` takes over raw mode on a TTY, the OS terminal
+   * does not echo either, so nothing the user types appears.
+   *
+   * `input`/`output` are injectable so the masking can be unit-tested without a
+   * real terminal; they default to the process streams.
    */
-  protected async promptForPassword(username: string): Promise<string> {
+  protected async promptForPassword(
+    username: string,
+    input: NodeJS.ReadableStream & { isTTY?: boolean } = process.stdin,
+    output: NodeJS.WritableStream = process.stdout,
+  ): Promise<string> {
+    const promptText = `Enter iCloud password for ${username}: `;
+    const isTty = Boolean(input.isTTY);
+
+    // Proxy to `output` but drop writes while muted, so keystrokes never echo.
+    const masked = new Writable({
+      write(
+        chunk: unknown,
+        _encoding: BufferEncoding,
+        callback: (error?: Error | null) => void,
+      ): void {
+        if (!masked.muted) {
+          output.write(chunk as string | Uint8Array);
+        }
+        callback();
+      },
+    }) as Writable & { muted: boolean };
+    masked.muted = false;
+
     const rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout,
+      input,
+      output: masked,
+      terminal: isTty,
     });
+
     try {
-      return await rl.question(`Enter iCloud password for ${username}: `);
+      output.write(promptText); // visible prompt (unmuted)
+      masked.muted = true; // suppress echo of the typed characters
+      const answer = await rl.question('');
+      output.write('\n'); // the Enter newline was muted — emit it so the cursor moves on
+      return answer;
     } finally {
+      masked.muted = false;
       rl.close();
     }
   }

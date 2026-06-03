@@ -275,6 +275,7 @@ export class IcloudAuthService implements IcloudAuthLike {
         if (error instanceof PyiCloudAPIResponseException) {
           throw new PyiCloudFailedLoginException(
             'Invalid email/password combination.',
+            error,
           );
         }
         throw error;
@@ -305,7 +306,10 @@ export class IcloudAuthService implements IcloudAuthLike {
       this.data = resp.data;
     } catch (error) {
       if (error instanceof PyiCloudAPIResponseException) {
-        throw new PyiCloudFailedLoginException('Invalid authentication token.');
+        throw new PyiCloudFailedLoginException(
+          'Invalid authentication token.',
+          error,
+        );
       }
       throw error;
     }

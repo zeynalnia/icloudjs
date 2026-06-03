@@ -169,11 +169,24 @@ function makeDeps(
 // ---------------------------------------------------------------------------
 
 describe('runCli — exit codes', () => {
-  it('exits 2 when no username is supplied', async () => {
-    const { deps, exit, err } = makeDeps();
+  it('exits 2 when no username is supplied (non-interactive)', async () => {
+    const { deps, exit, err } = makeDeps({ interactive: false });
     await runCli([], deps);
     expect(exit).toHaveBeenCalledWith(2);
     expect(err.join('\n')).toContain('No username supplied');
+  });
+
+  it('prompts for the username when it is omitted (interactive)', async () => {
+    const { api } = makeApi([makeDevice(DEVICE_A)]);
+    const createService = jest.fn(async () => api);
+    const { deps, exit, stdin } = makeDeps({
+      createService,
+      stdinResponses: ['typed@user.com'],
+    });
+    await runCli(['--password', 'pw'], deps);
+    expect(stdin).toHaveBeenCalledWith('iCloud username (Apple ID): ');
+    expect(createService).toHaveBeenCalledWith('typed@user.com', 'pw', false);
+    expect(exit).toHaveBeenCalledWith(0);
   });
 
   it('exits 2 when no password is available (non-interactive, not in keyring)', async () => {

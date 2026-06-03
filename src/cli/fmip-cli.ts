@@ -269,7 +269,7 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<void> {
   const interactive =
     options.interactive && (deps.interactive ?? !!process.stdout.isTTY);
 
-  const username = options.username;
+  let username = options.username;
   let password = options.password;
   const china = options.chinaMainland;
 
@@ -287,9 +287,16 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<void> {
   // ----------------------------------------------------------------------
   for (;;) {
     // Username is required (it determines which keyring password to use).
+    // When it is missing we prompt for it interactively; only a non-interactive
+    // run (or an empty answer) falls through to the usage error.
     if (!username) {
-      deps.errlog('No username supplied');
-      return void deps.exit(2);
+      if (interactive) {
+        username = (await deps.stdin('iCloud username (Apple ID): ')).trim();
+      }
+      if (!username) {
+        deps.errlog('No username supplied');
+        return void deps.exit(2);
+      }
     }
 
     if (!password) {
@@ -367,12 +374,20 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<void> {
       }
 
       const message = `Bad username or password for ${username}`;
+      // The exception message carries Apple's actual reason/code when the
+      // failure wrapped an API error. Surface it so a non-credential rejection
+      // (throttling, account state, 2FA quirks) is diagnosable rather than
+      // looking like a simple wrong password.
+      const detail = err.message && err.message !== message ? err.message : '';
       password = '';
       failureCount += 1;
       if (failureCount >= 3) {
-        throw new Error(message);
+        throw new Error(detail ? `${message} (${detail})` : message);
       }
       deps.errlog(message);
+      if (detail) {
+        deps.errlog(`  ↳ ${detail}`);
+      }
     }
   }
 

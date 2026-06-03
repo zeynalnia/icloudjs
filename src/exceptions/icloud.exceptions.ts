@@ -76,9 +76,25 @@ export class PyiCloudServiceNotActivatedException extends PyiCloudAPIResponseExc
  * must not catch generic API response errors and vice versa.
  */
 export class PyiCloudFailedLoginException extends PyiCloudException {
-  constructor(message?: string) {
-    super(message);
+  /**
+   * The underlying API error from Apple, when the login failure wraps one. The
+   * reference (`pyicloud`) chains this as the exception cause; preserving it
+   * lets the CLI surface Apple's *actual* reason/code instead of a generic
+   * "bad password" — important when a correct password is rejected for a
+   * different reason (throttling, account state, app/2FA quirks, …).
+   */
+  readonly apiError?: PyiCloudAPIResponseException;
+
+  constructor(message?: string, apiError?: PyiCloudAPIResponseException) {
+    const detail = apiError ? apiError.reason || apiError.message || '' : '';
+    const code = apiError?.code;
+    let msg = message ?? '';
+    if (detail) {
+      msg += ` — Apple responded: ${detail}${code ? ` (${code})` : ''}`;
+    }
+    super(msg);
     this.name = 'PyiCloudFailedLoginException';
+    this.apiError = apiError;
     Object.setPrototypeOf(this, PyiCloudFailedLoginException.prototype);
   }
 }

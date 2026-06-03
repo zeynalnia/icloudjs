@@ -3,6 +3,7 @@
  *
  * keytar is mocked via `jest.mock('keytar')` so no OS keychain is touched.
  */
+import { PassThrough, Writable } from 'stream';
 import * as keytar from 'keytar';
 
 import {
@@ -163,6 +164,46 @@ describe('SecretsService', () => {
         PyiCloudNoStoredPasswordAvailableException,
       );
       expect(promptSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('promptForPassword (input masking)', () => {
+    it('does NOT echo the typed password to the output stream', async () => {
+      const SECRET = 'PLAINTEXT-s3cret!';
+      // A fake TTY input: isTTY true forces readline into terminal/echo mode,
+      // which is exactly the path that must be masked.
+      const fakeIn = new PassThrough() as PassThrough & {
+        isTTY?: boolean;
+        setRawMode?: (mode: boolean) => void;
+      };
+      fakeIn.isTTY = true;
+      fakeIn.setRawMode = (): void => undefined;
+
+      const written: string[] = [];
+      const fakeOut = new Writable({
+        write(chunk, _enc, cb): void {
+          written.push(String(chunk));
+          cb();
+        },
+      });
+
+      const promise = (
+        service as unknown as {
+          promptForPassword: (
+            u: string,
+            i: unknown,
+            o: unknown,
+          ) => Promise<string>;
+        }
+      ).promptForPassword(USERNAME, fakeIn, fakeOut);
+
+      fakeIn.write(`${SECRET}\n`);
+      const answer = await promise;
+
+      const out = written.join('');
+      expect(answer).toBe(SECRET); // the password is still captured correctly
+      expect(out).toContain('Enter iCloud password'); // the prompt IS visible
+      expect(out).not.toContain(SECRET); // ...but the password is NOT echoed
     });
   });
 
