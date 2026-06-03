@@ -129,6 +129,24 @@ describe('CalendarService', () => {
       expect(opts.params).not.toHaveProperty('startDate');
       expect(opts.params).not.toHaveProperty('endDate');
     });
+
+    it('returns undefined when the server omits the Event key', async () => {
+      const { service, http } = makeService();
+      http.request.mockResolvedValue(makeResponse({}));
+
+      const result = await service.getEventDetail('cal-p', 'evt-1');
+
+      expect(result).toBeUndefined();
+    });
+
+    it('returns undefined when the Event array is empty', async () => {
+      const { service, http } = makeService();
+      http.request.mockResolvedValue(makeResponse({ Event: [] }));
+
+      const result = await service.getEventDetail('cal-p', 'evt-1');
+
+      expect(result).toBeUndefined();
+    });
   });
 
   describe('calendars()', () => {

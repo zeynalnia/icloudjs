@@ -35,6 +35,9 @@
  * content-type — never enters the retry/raise/parse path at all, because the
  * gate requires `!ok` first.
  */
+import * as fs from 'fs';
+import * as https from 'https';
+
 import { Injectable, Logger } from '@nestjs/common';
 import axios, {
   AxiosInstance,
@@ -43,6 +46,7 @@ import axios, {
   RawAxiosRequestHeaders,
 } from 'axios';
 import { wrapper } from 'axios-cookiejar-support';
+import { HttpsCookieAgent } from 'http-cookie-agent/http';
 import { Cookie, Store } from 'tough-cookie';
 
 import { HEADER_DATA } from '../constants';
@@ -117,20 +121,59 @@ export class IcloudHttpService {
     // validateStatus ALWAYS true: axios never throws on an HTTP status; we do
     // all error handling ourselves in request() so the Python error/retry
     // semantics are reproduced exactly.
+    // TLS verification (mirrors Python `session.verify = verify`):
+    //   - `false`  → disable certificate checks (testing only);
+    //   - a string → load it as a custom CA bundle path;
+    //   - true/undefined → Node's default agent (verification on).
+    //
+    // axios-cookiejar-support's `wrapper()` REJECTS any caller-supplied
+    // http(s).Agent and, even when it accepts one, overwrites `httpsAgent`
+    // with its own cookie agent whenever `config.jar` is set. So a plain
+    // `https.Agent` cannot coexist with the jar. Instead we build a single
+    // `HttpsCookieAgent` (from the same `http-cookie-agent` package the
+    // wrapper uses) that carries BOTH the tough-cookie jar AND the TLS
+    // options, and we do NOT register the jar on the instance defaults in
+    // that case — so the wrapper interceptor early-returns and leaves our
+    // agent untouched. When `verify` is unset we keep the original path:
+    // register the jar and let `wrapper()` inject its own cookie agents.
+    const httpsAgent = this.buildHttpsAgent();
+
     const base = axios.create({
-      jar: this.store.jar,
+      ...(httpsAgent ? {} : { jar: this.store.jar }),
       withCredentials: true,
       validateStatus: () => true,
-      // TLS verification: `false` disables cert checks (testing only).
-      ...(this.endpoints.verify === false
-        ? { httpsAgent: undefined }
-        : {}),
+      ...(httpsAgent ? { httpsAgent } : {}),
     } as never);
 
     this.client = wrapper(base);
 
     this.registerRequestInterceptor();
     this.registerResponseInterceptor();
+  }
+
+  /**
+   * Build the `httpsAgent` for the configured `verify` toggle, or `undefined`
+   * to fall back to the wrapper's own cookie agent (verification on). The
+   * returned agent is an `HttpsCookieAgent` (a subclass of `https.Agent`) so
+   * it carries the cookie jar in addition to the TLS options — see the note
+   * in the constructor for why a plain `https.Agent` cannot be used here.
+   *   - `verify === false` → agent with `{ rejectUnauthorized: false }`;
+   *   - `verify` is a string path → agent with `{ ca: readFileSync(path) }`;
+   *   - `true`/`undefined` → `undefined` (wrapper supplies the cookie agent).
+   */
+  private buildHttpsAgent(): https.Agent | undefined {
+    const { verify } = this.endpoints;
+    if (verify === false) {
+      return new HttpsCookieAgent({
+        cookies: { jar: this.store.jar },
+        rejectUnauthorized: false,
+      });
+    }
+    if (typeof verify === 'string') {
+      const ca = fs.readFileSync(verify);
+      return new HttpsCookieAgent({ cookies: { jar: this.store.jar }, ca });
+    }
+    return undefined;
   }
 
   /** The live, mutable handshake bag (harvested from response headers). */
@@ -193,7 +236,7 @@ export class IcloudHttpService {
    * request() before this runs, so we only fill in what is missing).
    */
   private registerRequestInterceptor(): void {
-    this.client.interceptors.request.use((config) => {
+    this.client.interceptors.request.use(async (config) => {
       const headers = config.headers;
 
       // Default headers (Origin/Referer) — only set when absent.
@@ -210,6 +253,19 @@ export class IcloudHttpService {
       }
       if (sd.session_id) {
         headers.set('X-Apple-ID-Session-Id', sd.session_id);
+      }
+
+      // Replay the tough-cookie jar's cookies on the outgoing request. The
+      // cookie-jar `wrapper()` normally does this at the socket layer, but a
+      // custom `verify` `httpsAgent` (and test doubles like nock) bypass that
+      // hook — so we set the Cookie header from the jar here too. This is
+      // idempotent with the wrapper (same jar, same value) and keeps cookies
+      // flowing regardless of which agent is in use.
+      if (config.url) {
+        const cookieString = await this.store.jar.getCookieString(config.url);
+        if (cookieString) {
+          headers.set('Cookie', cookieString);
+        }
       }
 
       return config;
@@ -231,6 +287,21 @@ export class IcloudHttpService {
           // Harvest into the mutable handshake bag (never logged).
           (this.store.sessionData as Record<string, unknown>)[key] = value;
         }
+      }
+
+      // Harvest Set-Cookie into the tough-cookie jar. The cookie-jar
+      // `wrapper()` does this at the socket layer, but a custom `verify`
+      // `httpsAgent` (and test doubles like nock) bypass that hook — so we
+      // save here too. tough-cookie de-duplicates, so this is safe to run
+      // even when the wrapper already stored the same cookie.
+      const setCookie = this.readSetCookie(response);
+      if (setCookie.length > 0 && response.config.url) {
+        const url = response.config.url;
+        await Promise.all(
+          setCookie.map((c) =>
+            this.store.jar.setCookie(c, url).catch(() => undefined),
+          ),
+        );
       }
 
       // Persist session_data JSON + cookie jar (mirrors per-request persist).
@@ -262,8 +333,20 @@ export class IcloudHttpService {
     // (e.g. accountLogin's `dsWebAuthToken`/`trustToken`, signin's
     // `trustTokens`). See DoD §5/§7.5: the password and the harvested tokens
     // must never appear in logs.
+    // Strip the query string from download URLs: Drive/Photo downloads target
+    // a time-limited, self-authenticating iCloud CDN URL whose `e=<expiry>` +
+    // signature grant read access to the file bytes. Those signed params must
+    // never reach the logs in cleartext.
+    const responseType = opts.responseType ?? 'json';
+    const loggableUrl =
+      responseType === 'stream' || responseType === 'arraybuffer'
+        ? this.stripQuery(url)
+        : url;
+
     this.logger.debug(
-      `${method} ${url} ${this.redactAllSecrets(this.describeBody(opts.data))}`,
+      `${method} ${loggableUrl} ${this.redactAllSecrets(
+        this.redactBodyFields(this.describeBody(opts.data)),
+      )}`,
     );
 
     const response = await this.client.request<T>({
@@ -274,7 +357,7 @@ export class IcloudHttpService {
       headers: (opts.headers ?? {}) as RawAxiosRequestHeaders,
       // 'json' is axios's default and parses the body; 'stream'/'arraybuffer'
       // return the raw payload untouched.
-      responseType: opts.responseType ?? 'json',
+      responseType,
     });
 
     const contentType = this.contentType(response);
@@ -384,6 +467,35 @@ export class IcloudHttpService {
     return undefined;
   }
 
+  /**
+   * Pull the raw `Set-Cookie` header(s) off a response as a string list.
+   * `set-cookie` is the one header that may legitimately repeat, so axios/Node
+   * expose it as an array — but a plain-map double may hand back a single
+   * string. Normalise both into a list of cookie strings.
+   */
+  private readSetCookie(response: AxiosResponse): string[] {
+    const headers = response.headers as unknown as
+      | { get?: (n: string) => unknown }
+      | Record<string, unknown>;
+
+    let raw: unknown;
+    if (headers && typeof (headers as { get?: unknown }).get === 'function') {
+      raw = (headers as { get: (n: string) => unknown }).get('set-cookie');
+    } else {
+      for (const [k, v] of Object.entries(headers as Record<string, unknown>)) {
+        if (k.toLowerCase() === 'set-cookie') {
+          raw = v;
+          break;
+        }
+      }
+    }
+
+    if (raw == null || raw === '') {
+      return [];
+    }
+    return (Array.isArray(raw) ? raw : [raw]).map((c) => String(c));
+  }
+
   /** First token of the Content-Type header (before any `;`), lower-cased. */
   private contentType(response: AxiosResponse): string {
     const raw = this.readHeader(response, 'Content-Type') ?? '';
@@ -416,6 +528,66 @@ export class IcloudHttpService {
       }
     }
     return out;
+  }
+
+  /**
+   * Reduce a URL to `origin + pathname`, dropping the query string. Used for
+   * signed CDN download URLs so their `e=<expiry>`/signature params never reach
+   * the logs. Falls back to the raw string if the URL cannot be parsed.
+   */
+  private stripQuery(url: string): string {
+    try {
+      const u = new URL(url);
+      return u.origin + u.pathname;
+    } catch {
+      return url;
+    }
+  }
+
+  /**
+   * Mask one-time codes / PII in a JSON-serialized request body BEFORE logging.
+   * The verification code and trusted-device PII (phone number/device name) are
+   * neither the password nor one of the harvested handshake tokens, so
+   * {@link redactAllSecrets} would not catch them. We re-serialize with the
+   * sensitive fields replaced. Matched (case-insensitive) keys:
+   *   `code`, `securityCode` (and its nested `code`), `verificationCode`,
+   *   `phoneNumber`.
+   * Non-JSON / unparseable bodies are returned untouched.
+   */
+  private redactBodyFields(body: string): string {
+    if (!body) {
+      return body;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      return body;
+    }
+    const sensitive = new Set([
+      'code',
+      'securitycode',
+      'verificationcode',
+      'phonenumber',
+    ]);
+    const mask = (value: unknown): unknown => {
+      if (Array.isArray(value)) {
+        return value.map(mask);
+      }
+      if (value && typeof value === 'object') {
+        const out: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+          out[k] = sensitive.has(k.toLowerCase()) ? '<redacted>' : mask(v);
+        }
+        return out;
+      }
+      return value;
+    };
+    try {
+      return JSON.stringify(mask(parsed));
+    } catch {
+      return body;
+    }
   }
 
   /** A loggable, secret-free description of the request body. */

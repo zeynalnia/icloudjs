@@ -456,6 +456,30 @@ describe('DriveService — cookie token extraction', () => {
       drive.sendFile('documents', 'x.txt', Readable.from([]), 0),
     ).rejects.toThrow('Token cookie not found');
   });
+
+  it('throws without leaking the cookie value when the t= segment is missing', async () => {
+    const service = await auth();
+    // Seed a malformed validate cookie that lacks the `t=` segment. Its value
+    // is an auth credential and must NOT appear in the thrown error message.
+    const secret = 'super-secret-cookie-value-no-t-segment';
+    seedMalformedValidateCookie(service, secret);
+    const drive = service.drive;
+
+    const result = await drive
+      .sendFile('documents', 'x.txt', Readable.from([Buffer.from('z')]), 1)
+      .then(
+        () => ({ ok: true as const }),
+        (err: Error) => ({ ok: false as const, message: err.message }),
+      );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.message).toBe(
+        'Could not extract upload token from X-APPLE-WEBAUTH-VALIDATE cookie (no t= segment)',
+      );
+      expect(result.message).not.toContain(secret);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -517,6 +541,25 @@ function seedValidateCookie(
   // docws host (the upload reserve targets documentRoot).
   store.jar.setCookieSync(
     `X-APPLE-WEBAUTH-VALIDATE="v=1:t=${token}:other"; Domain=p31-docws.icloud.com; Path=/`,
+    'https://p31-docws.icloud.com:443',
+  );
+}
+
+/**
+ * Seed a malformed `X-APPLE-WEBAUTH-VALIDATE` cookie whose value lacks the
+ * `t=` segment, so token extraction fails. Used to assert the thrown error
+ * does not leak the (credential-bearing) cookie value.
+ */
+function seedMalformedValidateCookie(
+  service: IcloudAuthService,
+  value: string,
+): void {
+  const http = (service as unknown as { http: IcloudHttpService }).http;
+  const store = (
+    http as unknown as { store: { jar: { setCookieSync: (c: string, u: string) => void } } }
+  ).store;
+  store.jar.setCookieSync(
+    `X-APPLE-WEBAUTH-VALIDATE="v=1:${value}:other"; Domain=p31-docws.icloud.com; Path=/`,
     'https://p31-docws.icloud.com:443',
   );
 }

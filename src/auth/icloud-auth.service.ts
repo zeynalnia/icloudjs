@@ -186,7 +186,7 @@ export class IcloudAuthService implements IcloudAuthLike {
       store,
       http,
       clientId,
-      true,
+      options.withFamily ?? true,
     );
     http.bindAuth(svc);
 
@@ -503,7 +503,7 @@ export class IcloudAuthService implements IcloudAuthLike {
   get requires2fa(): boolean {
     return (
       this.data?.dsInfo?.hsaVersion === 2 &&
-      (this.data?.hsaChallengeRequired === true || !this.isTrustedSession)
+      (!!this.data?.hsaChallengeRequired || !this.isTrustedSession)
     );
   }
 
@@ -511,7 +511,7 @@ export class IcloudAuthService implements IcloudAuthLike {
   get requires2sa(): boolean {
     return (
       (this.data?.dsInfo?.hsaVersion ?? 0) >= 1 &&
-      (this.data?.hsaChallengeRequired === true || !this.isTrustedSession)
+      (!!this.data?.hsaChallengeRequired || !this.isTrustedSession)
     );
   }
 

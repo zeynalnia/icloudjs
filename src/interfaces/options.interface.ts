@@ -24,8 +24,12 @@ export interface IcloudModuleOptions {
    */
   chinaMainland?: boolean;
   /**
-   * TLS verification toggle / CA bundle path passed through to the HTTP layer.
-   * `false` disables certificate verification (testing only).
+   * TLS verification control passed through to the HTTP layer.
+   * - `false` disables TLS certificate verification (testing only — never use
+   *   against the real Apple endpoints).
+   * - a string is treated as a path to a CA-bundle file used to verify the
+   *   server certificate.
+   * Omitted/`true` keeps Node's default certificate verification.
    */
   verify?: boolean | string;
   /**
@@ -33,6 +37,12 @@ export interface IcloudModuleOptions {
    * reused, else a fresh `auth-<uuidv1>` is generated.
    */
   clientId?: string;
+  /**
+   * Whether device commands default to including family-shared devices
+   * (mirrors Python `with_family`). Defaults to `true`; set `false` to limit
+   * `FindMyiPhoneService.refreshClient` to this account's own devices.
+   */
+  withFamily?: boolean;
   /**
    * Override the `User-Agent` sent on every request. Defaults to the iCloud web
    * client's Safari UA ({@link DEFAULT_USER_AGENT}); Apple may answer

@@ -164,6 +164,20 @@ describe('2FA/2SA state getters (hardened with optional chaining)', () => {
     expect(service.requires2sa).toBe(true);
     expect(service.isTrustedSession).toBe(false);
   });
+
+  it('treats a truthy non-boolean hsaChallengeRequired (1) as required (loose truthiness)', async () => {
+    const service = await auth();
+    // Force a trusted-browser payload so the `!isTrustedSession` branch is
+    // false; only the loose-truthy `hsaChallengeRequired` can flip the getter.
+    (service as unknown as { data: unknown }).data = {
+      dsInfo: { hsaVersion: 2 },
+      hsaTrustedBrowser: true,
+      hsaChallengeRequired: 1, // truthy but NOT strictly `=== true`
+    };
+    expect(service.isTrustedSession).toBe(true);
+    expect(service.requires2fa).toBe(true);
+    expect(service.requires2sa).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -474,5 +488,43 @@ describe('China mode (hosts .com.cn) + GLOBAL OAuth redirect', () => {
 
     // PyiCloudAPIResponseException import kept meaningful (error-type contract).
     expect(PyiCloudAPIResponseException).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 8. withFamily option (parity with Python `with_family`)
+// ---------------------------------------------------------------------------
+
+describe('withFamily option', () => {
+  it('defaults to true when not supplied', async () => {
+    const service = await auth();
+    expect(service.withFamily).toBe(true);
+
+    // It threads into the FindMyiPhone service (refreshClient `fmly` flag).
+    const fmip = await service.findMyiPhone();
+    expect((fmip as unknown as { withFamily: boolean }).withFamily).toBe(true);
+  });
+
+  it('is honored when explicitly set to false', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'jsicloud-fam-'));
+    cleanups.push(async () => {
+      await fs.rm(dir, { recursive: true, force: true }).catch(() => undefined);
+    });
+
+    const service = await IcloudAuthService.create(
+      {
+        accountName: AUTHENTICATED_USER,
+        password: VALID_PASSWORD,
+        cookieDir: dir,
+        withFamily: false,
+      },
+      stubSecrets(),
+    );
+
+    expect(service.withFamily).toBe(false);
+
+    // The false flag reaches the constructed FindMyiPhone service.
+    const fmip = await service.findMyiPhone();
+    expect((fmip as unknown as { withFamily: boolean }).withFamily).toBe(false);
   });
 });

@@ -18,6 +18,7 @@
  *  - no-secret-logging: password / harvested tokens never reach the logger.
  */
 import { promises as fs } from 'fs';
+import * as https from 'https';
 import * as os from 'os';
 import * as path from 'path';
 import { Logger } from '@nestjs/common';
@@ -639,5 +640,165 @@ describe('request interceptor — default User-Agent', () => {
 
     // nock only matches (and `done()` only passes) if the UA header was sent.
     expect(scope.isDone()).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TLS `verify` option (finding [1])
+// ---------------------------------------------------------------------------
+
+describe('verify option → https agent', () => {
+  /** Reach into the wrapped axios instance to read its default httpsAgent. */
+  function httpsAgentOf(http: IcloudHttpService): https.Agent | undefined {
+    const client = (http as unknown as { client: { defaults: { httpsAgent?: https.Agent } } })
+      .client;
+    return client.defaults.httpsAgent;
+  }
+
+  it('verify=false yields an https agent with rejectUnauthorized false', async () => {
+    const { store, dir } = await makeStore();
+    tmpDirs.push(dir);
+    const http = new IcloudHttpService(
+      store,
+      { ...ENDPOINTS, verify: false },
+      DEFAULT_HEADERS,
+    );
+    http.bindAuth(makeAuth());
+
+    const agent = httpsAgentOf(http);
+    expect(agent).toBeInstanceOf(https.Agent);
+    expect((agent as unknown as { options: { rejectUnauthorized?: boolean } }).options
+      .rejectUnauthorized).toBe(false);
+  });
+
+  it('uses the default agent (no custom httpsAgent) when verify is undefined', async () => {
+    const { store, dir } = await makeStore();
+    tmpDirs.push(dir);
+    const http = new IcloudHttpService(store, ENDPOINTS, DEFAULT_HEADERS);
+    http.bindAuth(makeAuth());
+
+    expect(httpsAgentOf(http)).toBeUndefined();
+  });
+
+  it('loads a CA bundle into the agent when verify is a path string', async () => {
+    const { store, dir } = await makeStore();
+    tmpDirs.push(dir);
+    const caPath = path.join(dir, 'ca.pem');
+    await fs.writeFile(caPath, '-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n');
+
+    const http = new IcloudHttpService(
+      store,
+      { ...ENDPOINTS, verify: caPath },
+      DEFAULT_HEADERS,
+    );
+    http.bindAuth(makeAuth());
+
+    const agent = httpsAgentOf(http);
+    expect(agent).toBeInstanceOf(https.Agent);
+    expect((agent as unknown as { options: { ca?: unknown } }).options.ca).toBeDefined();
+  });
+
+  it('the cookie jar still works after wrapping with a custom verify agent', async () => {
+    const { store, dir } = await makeStore();
+    tmpDirs.push(dir);
+    const http = new IcloudHttpService(
+      store,
+      { ...ENDPOINTS, verify: false },
+      DEFAULT_HEADERS,
+    );
+    http.bindAuth(makeAuth());
+
+    // The jar harvests Set-Cookie on response N and replays it on N+1.
+    nock(BASE)
+      .get('/jar1')
+      .reply(200, { ok: true }, {
+        'Content-Type': 'application/json',
+        'Set-Cookie': 'X-APPLE-WEBAUTH-TOKEN=jarval; Path=/; Domain=example.icloud.test',
+      });
+
+    let sentCookie: string | undefined;
+    nock(BASE)
+      .get('/jar2')
+      .reply(function () {
+        sentCookie = (this.req.headers as Record<string, string>).cookie;
+        return [200, { ok: true }, { 'Content-Type': 'application/json' }];
+      });
+
+    await http.request('GET', `${BASE}/jar1`);
+    await http.request('GET', `${BASE}/jar2`);
+
+    expect(sentCookie).toContain('X-APPLE-WEBAUTH-TOKEN=jarval');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Signed CDN URLs + body PII never reach the logs (findings [5], [6])
+// ---------------------------------------------------------------------------
+
+describe('download URL + body redaction in DEBUG logs', () => {
+  it("a stream download's signed query string never appears in the logger output", async () => {
+    const { http } = await service();
+
+    const logged: string[] = [];
+    const spy = jest
+      .spyOn(Logger.prototype, 'debug')
+      .mockImplementation((msg: unknown) => {
+        logged.push(String(msg));
+      });
+
+    const signature = 'abc123signature';
+    nock(BASE)
+      .get('/cdn/file.bin')
+      .query(true)
+      .reply(200, 'binary-bytes', { 'Content-Type': 'application/octet-stream' });
+
+    await http.request(
+      'GET',
+      `${BASE}/cdn/file.bin?e=1893456000&s=${signature}&token=secret-cdn-token`,
+      { responseType: 'stream' },
+    );
+
+    spy.mockRestore();
+
+    const all = logged.join('\n');
+    // The path/host is fine to log; the signed query string is not.
+    expect(all).toContain(`${BASE}/cdn/file.bin`);
+    expect(all).not.toContain(signature);
+    expect(all).not.toContain('secret-cdn-token');
+    expect(all).not.toContain('e=1893456000');
+  });
+
+  it('masks securityCode.code / verificationCode / phoneNumber in the logged line', async () => {
+    const { http } = await service();
+
+    const logged: string[] = [];
+    const spy = jest
+      .spyOn(Logger.prototype, 'debug')
+      .mockImplementation((msg: unknown) => {
+        logged.push(String(msg));
+      });
+
+    nock(BASE)
+      .post('/verify')
+      .reply(200, { ok: true }, { 'Content-Type': 'application/json' });
+
+    await http.request('POST', `${BASE}/verify`, {
+      data: {
+        securityCode: { code: '123456' },
+        verificationCode: '654321',
+        phoneNumber: '+15551234567',
+        deviceName: 'iPhone',
+      },
+    });
+
+    spy.mockRestore();
+
+    const all = logged.join('\n');
+    expect(all).not.toContain('123456');
+    expect(all).not.toContain('654321');
+    expect(all).not.toContain('+15551234567');
+    // Non-sensitive fields are still logged.
+    expect(all).toContain('securityCode');
+    expect(all).toContain('<redacted>');
   });
 });

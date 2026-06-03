@@ -413,7 +413,9 @@ export class DriveService {
       if (cookie.key === 'X-APPLE-WEBAUTH-VALIDATE') {
         const match = /\bt=([^:]+)/.exec(cookie.value);
         if (!match) {
-          throw new Error(`Can't extract token from ${cookie.value}`);
+          throw new Error(
+            'Could not extract upload token from X-APPLE-WEBAUTH-VALIDATE cookie (no t= segment)',
+          );
         }
         return { token: match[1] };
       }

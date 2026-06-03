@@ -101,11 +101,6 @@ describe('ContactsService — token handshake threading', () => {
     const service = await auth();
     const root = service.getWebserviceUrl('contacts');
 
-    // Record the query string nock observed on EACH leg of the handshake.
-    const seen: Array<{ path: string; query: Record<string, string> }> = [];
-
-    // A spy interceptor in FRONT of the persistent router: capture the request
-    // line, then defer to the router fixtures by replying directly.
     const startup = service.contacts;
 
     // Re-run the handshake but capture the outgoing query via the router state:
@@ -118,42 +113,76 @@ describe('ContactsService — token handshake threading', () => {
     // (which the HTTP layer raises) — so reaching here proves threading.
     expect(startup.response.contacts).toHaveLength(2);
 
-    // Belt-and-braces: issue the two legs manually and capture their queries.
+    // Belt-and-braces: issue the two legs manually and capture the ACTUAL
+    // outgoing request params for each leg, so the step-2 assertion checks the
+    // real query (prefToken/syncToken/limit) rather than literals we pushed.
     const http = (startup as unknown as { http: IcloudHttpService }).http;
     const params = (startup as unknown as { params: Record<string, string> })
       .params;
 
-    const startupResp = await http.request<{
-      prefToken: string;
-      syncToken: string;
-    }>('GET', `${root}/co/startup`, {
-      params: { ...params, clientVersion: '2.1', locale: 'en_US', order: 'last,first' },
-    });
-    seen.push({ path: '/co/startup', query: {} });
+    // Record the params object handed to http.request on EACH leg.
+    const seen: Array<{ path: string; query: Record<string, string> }> = [];
+    const realRequest = http.request.bind(http);
+    const spy = jest
+      .spyOn(http, 'request')
+      .mockImplementation(async (method, url, opts) => {
+        const path = url.includes('/co/startup')
+          ? '/co/startup'
+          : url.includes('/co/contacts')
+            ? '/co/contacts'
+            : url;
+        seen.push({
+          path,
+          query: (opts?.params ?? {}) as Record<string, string>,
+        });
+        return realRequest(method, url, opts);
+      });
 
-    const nextResp = await http.request<{ contacts: unknown[] }>(
-      'GET',
-      `${root}/co/contacts`,
-      {
-        params: {
-          ...params,
-          clientVersion: '2.1',
-          locale: 'en_US',
-          order: 'last,first',
-          prefToken: startupResp.data.prefToken,
-          syncToken: startupResp.data.syncToken,
-          limit: '0',
-          offset: '0',
+    let startupResp: { data: { prefToken: string; syncToken: string } };
+    let nextResp: { data: { contacts: unknown[] } };
+    try {
+      startupResp = await http.request<{
+        prefToken: string;
+        syncToken: string;
+      }>('GET', `${root}/co/startup`, {
+        params: { ...params, clientVersion: '2.1', locale: 'en_US', order: 'last,first' },
+      });
+
+      nextResp = await http.request<{ contacts: unknown[] }>(
+        'GET',
+        `${root}/co/contacts`,
+        {
+          params: {
+            ...params,
+            clientVersion: '2.1',
+            locale: 'en_US',
+            order: 'last,first',
+            prefToken: startupResp.data.prefToken,
+            syncToken: startupResp.data.syncToken,
+            limit: '0',
+            offset: '0',
+          },
         },
-      },
-    );
-    seen.push({ path: '/co/contacts', query: {} });
+      );
+    } finally {
+      spy.mockRestore();
+    }
 
     // Tokens flowed from step 1 into step 2 and the list came back.
     expect(startupResp.data.prefToken).toBe('pref-token-abc123');
     expect(startupResp.data.syncToken).toBe('sync-token-def456');
     expect(nextResp.data.contacts).toHaveLength(2);
+
+    // The two legs hit startup then contacts, in order.
     expect(seen.map((s) => s.path)).toEqual(['/co/startup', '/co/contacts']);
+
+    // REAL check: the step-2 outgoing query carried EXACTLY the step-1 tokens
+    // and limit=0 — captured from the actual http.request call, not literals.
+    const step2 = seen.find((s) => s.path === '/co/contacts');
+    expect(step2).toBeDefined();
+    expect(step2?.query.prefToken).toBe(startupResp.data.prefToken);
+    expect(step2?.query.syncToken).toBe(startupResp.data.syncToken);
+    expect(step2?.query.limit).toBe('0');
   });
 
   it('rejects (via the router 400) when step 2 omits the startup tokens', async () => {

@@ -108,9 +108,14 @@ export class CalendarService {
 
   /**
    * Fetch a single event's details by `pguid` (a calendar) and `guid` (the
-   * event id). Returns the first element of the `Event` array.
+   * event id). Returns the first element of the `Event` array, or `undefined`
+   * when the server omits the `Event` key or returns an empty array (the
+   * lenient `?? []` fallback — Python would instead raise on a missing key).
    */
-  async getEventDetail(pguid: string, guid: string): Promise<CalendarEvent> {
+  async getEventDetail(
+    pguid: string,
+    guid: string,
+  ): Promise<CalendarEvent | undefined> {
     const params = {
       ...this.params,
       lang: 'en-us',
