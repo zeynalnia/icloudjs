@@ -39,6 +39,7 @@ factory, plus a `jsicloud` **command-line tool**.
 - [Session & secret storage](#session--secret-storage)
 - [Error handling](#error-handling)
 - [Examples & AI skill](#examples--ai-skill)
+- [Troubleshooting](#troubleshooting)
 - [Development](#development)
 - [Porting notes — divergence from pyicloud](#porting-notes--divergence-from-pyicloud)
 - [License](#license)
@@ -459,6 +460,7 @@ jsicloud --username me@icloud.com --delete-from-keyring
 | `chinaMainland` | `boolean` | no | `false`. When `true`, the AUTH/HOME/SETUP endpoints use `.com.cn`; the OAuth widget stays on the global host. |
 | `verify` | `boolean \| string` | no | `undefined`. `false` disables TLS verification — **testing only**. |
 | `clientId` | `string` | no | The persisted `session_data.client_id`, else a fresh `auth-<uuidv1>`. |
+| `userAgent` | `string` | no | The iCloud web client's Safari UA (`DEFAULT_USER_AGENT`). Sent on every request; Apple may `503` non-browser User-Agents. |
 
 > The auth service also exposes a read-only `withFamily` flag (Find My iPhone
 > commands default to operating across family devices). It is derived internally
@@ -626,6 +628,34 @@ you need to map raw iCloud error bodies to these exceptions yourself.
 - Runnable examples live in [`/examples`](./examples).
 - An AI assistant skill describing this library lives in
   [`/skills/jsicloud`](./skills/jsicloud).
+
+---
+
+## Troubleshooting
+
+**`Bad username or password` — but the password is correct.** A failed login now
+surfaces Apple's actual reason/code (e.g. `↳ Invalid email/password combination.
+— Apple responded: Service Temporarily Unavailable (503)`). Use that detail:
+
+- **`503 Service Temporarily Unavailable`** from `idmsa.apple.com` is almost
+  never a wrong password — it is Apple **throttling** or **blocking** the
+  request (often anti-automation, or after several rapid sign-in attempts). Fixes:
+  - The client already sends a browser-like `User-Agent` ([`DEFAULT_USER_AGENT`](./src/constants.ts))
+    because Apple `503`s many non-browser clients. Override it with the
+    `userAgent` option if needed.
+  - **Wait** several minutes (back off) before retrying; repeated attempts
+    extend the throttle.
+  - Sign in once at [icloud.com](https://www.icloud.com) in a real browser to
+    clear any pending account/security prompt.
+  - Delete stale session/cookie state — remove the cookie directory
+    (`<tmpdir>/jsicloud/<os-username>/` by default, or your `cookieDir`) and try
+    again with a fresh session.
+- **`-20101` / `Your Apple ID or password is incorrect`** — genuinely wrong
+  credentials (or an account that requires action at icloud.com).
+
+The CLI deletes a stored keyring password after a failed login; if the failure
+was a `503`/throttle (not a bad password), re-enter or re-store it once Apple
+recovers.
 
 ---
 

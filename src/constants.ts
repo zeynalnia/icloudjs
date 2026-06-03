@@ -24,6 +24,17 @@ export const ENDPOINTS = {
   },
 } as const;
 
+/**
+ * Default `User-Agent` sent on every request. Apple's `idmsa`/iCloud endpoints
+ * increasingly answer non-browser clients with `503 Service Temporarily
+ * Unavailable` as an anti-automation measure; presenting the User-Agent of the
+ * iCloud web client (Safari on macOS) avoids that. Overridable via
+ * `IcloudModuleOptions.userAgent`.
+ */
+export const DEFAULT_USER_AGENT =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ' +
+  'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Safari/605.1.15';
+
 /** OAuth widget key + client id + redirect URI — GLOBAL even in China mode. */
 export const OAUTH = {
   /** Widget key AND client id (same value in pyicloud). */

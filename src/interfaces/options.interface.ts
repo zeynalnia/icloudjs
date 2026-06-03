@@ -33,4 +33,10 @@ export interface IcloudModuleOptions {
    * reused, else a fresh `auth-<uuidv1>` is generated.
    */
   clientId?: string;
+  /**
+   * Override the `User-Agent` sent on every request. Defaults to the iCloud web
+   * client's Safari UA ({@link DEFAULT_USER_AGENT}); Apple may answer
+   * non-browser User-Agents with `503 Service Temporarily Unavailable`.
+   */
+  userAgent?: string;
 }

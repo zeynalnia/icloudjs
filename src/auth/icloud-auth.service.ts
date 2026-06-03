@@ -28,7 +28,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { v1 as uuidv1 } from 'uuid';
 
-import { BUILD, ENDPOINTS, OAUTH } from '../constants';
+import { BUILD, DEFAULT_USER_AGENT, ENDPOINTS, OAUTH } from '../constants';
 import {
   PyiCloudAPIResponseException,
   PyiCloudException,
@@ -166,10 +166,12 @@ export class IcloudAuthService implements IcloudAuthLike {
     store.sessionData.client_id = clientId;
     await store.saveSessionData();
 
-    // 7. HTTP layer with default Origin/Referer headers.
+    // 7. HTTP layer with default Origin/Referer + a browser-like User-Agent
+    //    (Apple 503s non-browser clients; see DEFAULT_USER_AGENT).
     const http = new IcloudHttpService(store, endpoints, {
       Origin: endpoints.HOME,
       Referer: `${endpoints.HOME}/`,
+      'User-Agent': options.userAgent ?? DEFAULT_USER_AGENT,
     });
 
     // 8. Construct the orchestrator and wire it into the HTTP layer (for the

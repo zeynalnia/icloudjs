@@ -614,3 +614,30 @@ describe('no-secret logging', () => {
     expect(all).toContain('accountCountryCode');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Default headers: browser-like User-Agent (avoids Apple 503 anti-automation)
+// ---------------------------------------------------------------------------
+
+describe('request interceptor — default User-Agent', () => {
+  it('forwards a default User-Agent header on outgoing requests', async () => {
+    const { store, dir } = await makeStore();
+    tmpDirs.push(dir);
+    const UA =
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Safari/605.1.15';
+    const http = new IcloudHttpService(store, ENDPOINTS, {
+      ...DEFAULT_HEADERS,
+      'User-Agent': UA,
+    });
+    http.bindAuth(makeAuth());
+
+    const scope = nock(BASE, { reqheaders: { 'user-agent': UA } })
+      .get('/probe')
+      .reply(200, { ok: true }, { 'Content-Type': 'application/json' });
+
+    await http.request('GET', `${BASE}/probe`);
+
+    // nock only matches (and `done()` only passes) if the UA header was sent.
+    expect(scope.isDone()).toBe(true);
+  });
+});
