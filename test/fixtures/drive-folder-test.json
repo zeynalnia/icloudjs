@@ -1,0 +1,33 @@
+[
+  {
+    "drivewsid": "FOLDER::com.apple.CloudDocs::1C7F1760-D940-480F-8C4F-005824A4E05B",
+    "docwsid": "1C7F1760-D940-480F-8C4F-005824A4E05B",
+    "zone": "com.apple.CloudDocs",
+    "name": "pyiCloud",
+    "parentId": "FOLDER::com.apple.CloudDocs::root",
+    "etag": "30",
+    "type": "FOLDER",
+    "assetQuota": 42199575,
+    "fileCount": 2,
+    "shareCount": 0,
+    "shareAliasCount": 0,
+    "directChildrenCount": 1,
+    "items": [
+      {
+        "drivewsid": "FOLDER::com.apple.CloudDocs::D5AA0425-E84F-4501-AF5D-60F1D92648CF",
+        "docwsid": "D5AA0425-E84F-4501-AF5D-60F1D92648CF",
+        "zone": "com.apple.CloudDocs",
+        "name": "Test",
+        "parentId": "FOLDER::com.apple.CloudDocs::1C7F1760-D940-480F-8C4F-005824A4E05B",
+        "etag": "2z",
+        "type": "FOLDER",
+        "assetQuota": 42199575,
+        "fileCount": 2,
+        "shareCount": 0,
+        "shareAliasCount": 0,
+        "directChildrenCount": 2
+      }
+    ],
+    "numberOfItems": 1
+  }
+]

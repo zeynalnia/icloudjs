@@ -1,0 +1,30 @@
+{
+  "prefToken": "pref-token-abc123",
+  "syncToken": "sync-token-def456",
+  "contacts": [
+    {
+      "contactId": "0A1B2C3D-0001-0000-0000-000000000001",
+      "etag": "C=1@U=abc",
+      "firstName": "Quentin",
+      "lastName": "Tarantino",
+      "normalized": "Quentin Tarantino",
+      "phones": [
+        { "field": "+15551234567", "label": "MOBILE" }
+      ],
+      "emailAddresses": [
+        { "field": "quentintarantino@hotmail.fr", "label": "HOME" }
+      ]
+    },
+    {
+      "contactId": "0A1B2C3D-0002-0000-0000-000000000002",
+      "etag": "C=1@U=def",
+      "firstName": "John",
+      "lastName": "Travolta",
+      "normalized": "John Travolta",
+      "phones": [],
+      "emailAddresses": [
+        { "field": "johntravolta@me.com", "label": "WORK" }
+      ]
+    }
+  ]
+}

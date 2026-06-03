@@ -1,0 +1,75 @@
+{
+  "status-message": "Member of a family.",
+  "familyInvitations": [],
+  "outgoingTransferRequests": [],
+  "isMemberOfFamily": true,
+  "family": {
+    "familyId": "family_quentintarantino",
+    "transferRequests": [],
+    "invitations": [],
+    "organizer": "quentintarantino",
+    "members": [
+      "quentintarantino",
+      "umathurman",
+      "johntravolta"
+    ],
+    "outgoingTransferRequests": [],
+    "etag": "12"
+  },
+  "familyMembers": [
+    {
+      "lastName": "TARANTINO",
+      "dsid": "quentintarantino",
+      "originalInvitationEmail": "quentintarantino@hotmail.fr",
+      "fullName": "Quentin TARANTINO",
+      "ageClassification": "ADULT",
+      "appleIdForPurchases": "quentintarantino@hotmail.fr",
+      "appleId": "quentintarantino@hotmail.fr",
+      "familyId": "family_quentintarantino",
+      "firstName": "Quentin",
+      "hasParentalPrivileges": true,
+      "hasScreenTimeEnabled": false,
+      "hasAskToBuyEnabled": false,
+      "hasSharePurchasesEnabled": true,
+      "shareMyLocationEnabledFamilyMembers": [],
+      "hasShareMyLocationEnabled": true,
+      "dsidForPurchases": "quentintarantino"
+    },
+    {
+      "lastName": "THURMAN",
+      "dsid": "umathurman",
+      "originalInvitationEmail": "umathurman@outlook.fr",
+      "fullName": "Uma THURMAN",
+      "ageClassification": "ADULT",
+      "appleIdForPurchases": "umathurman@outlook.fr",
+      "appleId": "umathurman@outlook.fr",
+      "familyId": "family_quentintarantino",
+      "firstName": "Uma",
+      "hasParentalPrivileges": false,
+      "hasScreenTimeEnabled": false,
+      "hasAskToBuyEnabled": false,
+      "hasSharePurchasesEnabled": false,
+      "hasShareMyLocationEnabled": false,
+      "dsidForPurchases": "umathurman"
+    },
+    {
+      "lastName": "TRAVOLTA",
+      "dsid": "johntravolta",
+      "originalInvitationEmail": "johntravolta@icloud.com",
+      "fullName": "John TRAVOLTA",
+      "ageClassification": "ADULT",
+      "appleIdForPurchases": "johntravolta@icloud.com",
+      "appleId": "johntravolta@icloud.com",
+      "familyId": "family_quentintarantino",
+      "firstName": "John",
+      "hasParentalPrivileges": false,
+      "hasScreenTimeEnabled": false,
+      "hasAskToBuyEnabled": false,
+      "hasSharePurchasesEnabled": true,
+      "hasShareMyLocationEnabled": true,
+      "dsidForPurchases": "johntravolta"
+    }
+  ],
+  "status": 0,
+  "showAddMemberButton": true
+}

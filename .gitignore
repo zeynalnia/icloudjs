@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Test / coverage
+coverage/
+
+# iCloud session & cookie persistence (never commit)
+*.session
+*.cookies.json
+*.fmip_snapshot
+*.fmip_snapshot.json
+
+# Secrets
+.env
+.env.*
+*.pem
+credentials*.json
+
+# Internal workflow scratch artifacts
+.api-digest.md
+.investigation_modules.json
+
+# Editor / OS
+.DS_Store
+*.log
+.idea/
+.vscode/

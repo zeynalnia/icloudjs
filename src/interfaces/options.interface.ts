@@ -1,0 +1,36 @@
+/**
+ * Options for constructing an authenticated iCloud session.
+ *
+ * Mirrors the `PyiCloudService.__init__` parameters: `apple_id`/`password`,
+ * `cookie_directory`, `china_mainland`, `verify`, and `client_id`.
+ */
+export interface IcloudModuleOptions {
+  /** Apple ID / account name (email). Required. */
+  accountName: string;
+  /**
+   * Account password. If omitted, it is resolved from the OS keyring
+   * (keytar) by account name, or — when interactive — prompted for.
+   */
+  password?: string;
+  /**
+   * Directory for the cookie jar and `<account>.session` file.
+   * Defaults to `<tmpdir>/jsicloud/<os-username>` (created mode 0o700).
+   */
+  cookieDir?: string;
+  /**
+   * When true, use the `.com.cn` host bases for AUTH/HOME/SETUP.
+   * NOTE: the OAuth widget key / client id / redirect URI stay GLOBAL
+   * (`https://www.icloud.com`) even in China mode — see OAUTH in constants.ts.
+   */
+  chinaMainland?: boolean;
+  /**
+   * TLS verification toggle / CA bundle path passed through to the HTTP layer.
+   * `false` disables certificate verification (testing only).
+   */
+  verify?: boolean | string;
+  /**
+   * Explicit client id. If omitted, a persisted `session_data.client_id` is
+   * reused, else a fresh `auth-<uuidv1>` is generated.
+   */
+  clientId?: string;
+}

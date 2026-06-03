@@ -1,0 +1,9 @@
+{
+  "prefToken": "pref-token-abc123",
+  "syncToken": "sync-token-def456",
+  "contacts": [],
+  "prefs": {
+    "displayOrder": "first,last",
+    "sortOrder": "last,first"
+  }
+}
