@@ -572,6 +572,64 @@ export class IcloudAuthService implements IcloudAuthLike {
   }
 
   /**
+   * Ask Apple to deliver an HSA2 verification code.
+   *
+   * Unlike the legacy plaintext flow, Apple does **not** auto-push a code for
+   * API (non-browser) SRP sessions — it must be requested explicitly. This
+   * triggers the trusted-device push (`GET {AUTH}/verify/trusteddevice`) and,
+   * when the account has a trusted phone number, an SMS
+   * (`PUT {AUTH}/verify/phone` with `mode: 'sms'`). Best-effort: individual
+   * delivery failures are swallowed (one channel succeeding is enough), and the
+   * whole call is a no-op when 2FA is not required.
+   */
+  async requestTwoFactorCode(): Promise<void> {
+    if (!this.requires2fa) {
+      return;
+    }
+    const headers = this.getAuthHeaders({ Accept: 'application/json' });
+
+    // Discover trusted phone numbers (for the SMS fallback).
+    let phoneId: number | string | undefined;
+    try {
+      const opts = await this.http.request<{
+        trustedPhoneNumbers?: Array<{ id: number | string }>;
+        trustedPhoneNumber?: { id: number | string };
+      }>('GET', this.endpoints.AUTH, { headers });
+      const numbers = opts.data?.trustedPhoneNumbers;
+      phoneId =
+        opts.data?.trustedPhoneNumber?.id ??
+        (Array.isArray(numbers) && numbers.length ? numbers[0].id : undefined);
+    } catch {
+      // Ignore — still attempt the trusted-device push below.
+    }
+
+    // Trusted-device push.
+    try {
+      await this.http.request(
+        'GET',
+        `${this.endpoints.AUTH}/verify/trusteddevice`,
+        { headers },
+      );
+      this.logger.debug('Requested 2FA code via trusted device push');
+    } catch {
+      this.logger.debug('Could not request 2FA device push');
+    }
+
+    // SMS fallback when a trusted phone number is known.
+    if (phoneId !== undefined) {
+      try {
+        await this.http.request('PUT', `${this.endpoints.AUTH}/verify/phone`, {
+          data: JSON.stringify({ phoneNumber: { id: phoneId }, mode: 'sms' }),
+          headers,
+        });
+        this.logger.debug('Requested 2FA code via SMS');
+      } catch {
+        this.logger.debug('Could not request 2FA SMS code');
+      }
+    }
+  }
+
+  /**
    * Verify a 2FA code received via Apple's HSA2 system. A `-21669` error code
    * (wrong code) resolves to `false`. On success the session is trusted and
    * `!requires2sa` is returned.

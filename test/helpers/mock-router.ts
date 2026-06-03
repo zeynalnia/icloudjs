@@ -216,6 +216,21 @@ function route(req: ParsedRequest): RouteResult | RouteError | StreamResult {
   if (u.includes('securitycode') && method === 'POST') {
     return decideSecurityCode(body);
   }
+  // HSA2 code delivery (push + SMS). ORDER: 'verify/phone' before the generic
+  // 'verify' handling; these just acknowledge the request.
+  if (u.includes('verify/trusteddevice') && method === 'GET') {
+    return { status: 200, body: {} };
+  }
+  if (u.includes('verify/phone') && method === 'PUT') {
+    return { status: 200, body: {} };
+  }
+  // GET {AUTH} (auth options) — reveals trusted phone numbers for the SMS path.
+  if (u.endsWith('/appleauth/auth') && method === 'GET') {
+    return {
+      status: 200,
+      body: { trustedPhoneNumbers: [{ id: 1, numberWithDialCode: '+1 ••• 67' }] },
+    };
+  }
   if (u.includes('trust') && method === 'GET') {
     return decideTrust();
   }

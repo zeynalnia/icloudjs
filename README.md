@@ -211,7 +211,10 @@ still need a verification code. Inspect the lifecycle getters and respond.
 
 ```ts
 if (auth.requires2fa) {
-  // HSA2 two-factor: a 6-digit code on a trusted device.
+  // HSA2 two-factor. Ask Apple to DELIVER a code first — API/SRP sessions are
+  // not sent one automatically (this triggers the trusted-device push + SMS).
+  await auth.requestTwoFactorCode();
+  // Then verify the 6-digit code the user received.
   const ok = await auth.validate2faCode('123456');
   if (!ok) throw new Error('Wrong 2FA code');
 } else if (auth.requires2sa) {

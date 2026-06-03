@@ -82,6 +82,7 @@ function makeApi(
     requires2fa: false,
     requires2sa: false,
     trustedDevices: Promise.resolve([]),
+    requestTwoFactorCode: jest.fn().mockResolvedValue(undefined),
     validate2faCode: jest.fn().mockResolvedValue(true),
     sendVerificationCode: jest.fn().mockResolvedValue(true),
     validateVerificationCode: jest.fn().mockResolvedValue(true),
@@ -260,8 +261,10 @@ describe('runCli — exit codes', () => {
 describe('runCli — 2FA handshake', () => {
   it("reads the 2FA code '000000' from stdin and verifies it", async () => {
     const validate2faCode = jest.fn().mockResolvedValue(true);
+    const requestTwoFactorCode = jest.fn().mockResolvedValue(undefined);
     const { api } = makeApi([makeDevice(DEVICE_A)], {
       requires2fa: true,
+      requestTwoFactorCode,
       validate2faCode,
     });
     const { deps, exit, stdin } = makeDeps({
@@ -270,6 +273,8 @@ describe('runCli — 2FA handshake', () => {
     });
     await runCli(['--username', 'u@x.com', '--password', 'pw'], deps);
 
+    // The code must be REQUESTED (push/SMS) before we prompt for it.
+    expect(requestTwoFactorCode).toHaveBeenCalled();
     expect(stdin).toHaveBeenCalled();
     expect(validate2faCode).toHaveBeenCalledWith('000000');
     expect(exit).toHaveBeenCalledWith(0);

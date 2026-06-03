@@ -53,6 +53,8 @@ export const DEVICE_ERROR =
 export interface CliApi {
   /** True when HSA2 two-factor verification is still required. */
   readonly requires2fa: boolean;
+  /** Ask Apple to deliver an HSA2 code (trusted-device push + SMS fallback). */
+  requestTwoFactorCode(): Promise<void>;
   /** True when legacy two-step (HSA1) verification is still required. */
   readonly requires2sa: boolean;
   /** Devices trusted for two-step authentication (`{SETUP}/listDevices`). */
@@ -327,6 +329,9 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<void> {
       }
 
       if (api.requires2fa) {
+        // Apple does NOT auto-deliver a code for API (non-browser) SRP sessions;
+        // explicitly trigger the trusted-device push + SMS before prompting.
+        await api.requestTwoFactorCode();
         deps.log('\nTwo-step authentication required. \nPlease enter validation code');
         const code = await deps.stdin('(string) --> ');
         if (!(await api.validate2faCode(code))) {

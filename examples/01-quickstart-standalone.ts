@@ -84,7 +84,11 @@ async function main(): Promise<void> {
   // (HSA1/legacy trusted-device flow). An account uses one or the other.
   // -------------------------------------------------------------------------
   if (auth.requires2fa) {
-    // HSA2: a 6-digit code is pushed to the user's Apple devices.
+    // HSA2: ask Apple to DELIVER the code first. Unlike a browser login, an
+    // API/SRP session does not get a code automatically — this triggers the
+    // trusted-device push and an SMS fallback.
+    await auth.requestTwoFactorCode();
+
     console.log('Two-factor authentication (2FA) required.');
     const code = await prompt('Enter the 6-digit code: ');
 

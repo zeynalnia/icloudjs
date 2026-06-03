@@ -205,6 +205,19 @@ describe('validate2faCode (2FA path uses 000000)', () => {
     // trust token harvested by the response interceptor.
     expect(service['store'].sessionData.trust_token).toBe(TRUST_TOKEN_VALUE);
   });
+
+  it('requestTwoFactorCode triggers delivery for a 2FA session, no-op otherwise', async () => {
+    const twoFa = await auth({ accountName: REQUIRES_2FA_USER });
+    expect(twoFa.requires2fa).toBe(true);
+    // Hits GET {AUTH} (options) + GET verify/trusteddevice (push) + PUT
+    // verify/phone (SMS); all acknowledged by the router → resolves.
+    await expect(twoFa.requestTwoFactorCode()).resolves.toBeUndefined();
+
+    // A normal (non-2FA) session makes no delivery request.
+    const normal = await auth();
+    expect(normal.requires2fa).toBe(false);
+    await expect(normal.requestTwoFactorCode()).resolves.toBeUndefined();
+  });
 });
 
 // ---------------------------------------------------------------------------
