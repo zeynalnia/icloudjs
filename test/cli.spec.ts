@@ -8,7 +8,8 @@
  *  - exit `0` on success;
  *  - PER-DEVICE LOOP: no `--device` processes ALL devices; `--device <id>`
  *    filters by `content.id` (case-insensitive, trimmed);
- *  - `--list` prints EXACTLY the seven fields, in order;
+ *  - `--list` prints the device fields in order (incl. a "View on Map" link
+ *    when a location fix exists);
  *  - bad creds → `throw Error('Bad username or password for <user>')` after the
  *    THIRD failure (and the loop retries twice first);
  *  - 2FA via mocked stdin `'000000'`;
@@ -21,6 +22,8 @@ import {
   CliApi,
   CliDeps,
   DEVICE_ERROR,
+  formatLocation,
+  mapsUrl,
   runCli,
 } from '../src/cli/fmip-cli';
 import { AppleDevice } from '../src/services/findmyiphone.service';
@@ -469,7 +472,7 @@ describe('runCli — per-device loop & id filter', () => {
 // ---------------------------------------------------------------------------
 
 describe('runCli — --list field set', () => {
-  it('prints exactly the seven fields in order', async () => {
+  it('prints the device fields (incl. map link) in order', async () => {
     const a = makeDevice(DEVICE_A);
     const { api } = makeApi([a]);
     const { deps, out } = makeDeps({ api });
@@ -481,12 +484,36 @@ describe('runCli — --list field set', () => {
     expect(lines).toEqual([
       `Name - ${DEVICE_A.name}`,
       `Display Name  - ${DEVICE_A.deviceDisplayName}`,
-      `Location      - ${String(DEVICE_A.location)}`,
+      `Location      - 45.1, 6.1`,
+      `View on Map   - https://www.google.com/maps/search/?api=1&query=45.1,6.1`,
       `Battery Level - ${DEVICE_A.batteryLevel}`,
       `Battery Status- ${DEVICE_A.batteryStatus}`,
       `Device Class  - ${DEVICE_A.deviceClass}`,
       `Device Model  - ${DEVICE_A.deviceModel}`,
     ]);
+  });
+
+  it('formatLocation renders coordinates, accuracy, timestamp and staleness', () => {
+    expect(formatLocation(null)).toBe('unknown');
+    expect(formatLocation({})).toBe('unknown');
+    expect(formatLocation({ latitude: 45.1, longitude: 6.1 })).toBe('45.1, 6.1');
+    expect(
+      formatLocation({
+        latitude: 1.5,
+        longitude: 2.5,
+        horizontalAccuracy: 65,
+        timeStamp: Date.UTC(2026, 5, 3, 12, 0, 0),
+        isOld: true,
+      }),
+    ).toBe('1.5, 2.5 (±65m) @ 2026-06-03T12:00:00.000Z [stale]');
+  });
+
+  it('mapsUrl builds a Google Maps link (or null without a fix)', () => {
+    expect(mapsUrl(null)).toBeNull();
+    expect(mapsUrl({ latitude: null })).toBeNull();
+    expect(mapsUrl({ latitude: 45.1, longitude: 6.1 })).toBe(
+      'https://www.google.com/maps/search/?api=1&query=45.1,6.1',
+    );
   });
 
   it('--llist (long list) prints every content key', async () => {

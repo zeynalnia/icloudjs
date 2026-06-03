@@ -44,6 +44,50 @@ export const DEVICE_ERROR =
   'Please use the --device switch to indicate which device to use.';
 
 /**
+ * Render a Find My iPhone `location` object as a readable one-liner (the raw
+ * value is an object, so naive string interpolation prints `[object Object]`).
+ * Returns `unknown` when no fix is available.
+ */
+export function formatLocation(location: unknown): string {
+  if (!location || typeof location !== 'object') {
+    return 'unknown';
+  }
+  const loc = location as Record<string, unknown>;
+  if (loc.latitude == null || loc.longitude == null) {
+    return 'unknown';
+  }
+  let out = `${loc.latitude}, ${loc.longitude}`;
+  if (loc.horizontalAccuracy != null) {
+    out += ` (±${loc.horizontalAccuracy}m)`;
+  }
+  if (loc.timeStamp != null) {
+    const when = new Date(Number(loc.timeStamp));
+    if (!Number.isNaN(when.getTime())) {
+      out += ` @ ${when.toISOString()}`;
+    }
+  }
+  if (loc.isOld) {
+    out += ' [stale]';
+  }
+  return out;
+}
+
+/**
+ * Build a Google Maps URL for a Find My iPhone `location` object, or `null`
+ * when there is no usable fix.
+ */
+export function mapsUrl(location: unknown): string | null {
+  if (!location || typeof location !== 'object') {
+    return null;
+  }
+  const loc = location as Record<string, unknown>;
+  if (loc.latitude == null || loc.longitude == null) {
+    return null;
+  }
+  return `https://www.google.com/maps/search/?api=1&query=${loc.latitude},${loc.longitude}`;
+}
+
+/**
  * The slice of an authenticated iCloud session that the CLI actually drives.
  *
  * Structurally compatible with {@link IcloudAuthService}: `main.ts` passes the
@@ -432,7 +476,11 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<void> {
       deps.log('-'.repeat(30));
       deps.log(`Name - ${String(contents.name)}`);
       deps.log(`Display Name  - ${String(contents.deviceDisplayName)}`);
-      deps.log(`Location      - ${String(contents.location)}`);
+      deps.log(`Location      - ${formatLocation(contents.location)}`);
+      const url = mapsUrl(contents.location);
+      if (url) {
+        deps.log(`View on Map   - ${url}`);
+      }
       deps.log(`Battery Level - ${String(contents.batteryLevel)}`);
       deps.log(`Battery Status- ${String(contents.batteryStatus)}`);
       deps.log(`Device Class  - ${String(contents.deviceClass)}`);
