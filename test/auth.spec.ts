@@ -379,6 +379,78 @@ describe('authenticate — validate-token reuse', () => {
     // Silence unused-import lint of VALID_COOKIE (gate value documented).
     expect(VALID_COOKIE).toBe('valid_cookie');
   });
+
+  it('reuses a persisted TRUSTED session on the next run — 2FA is skipped (no fresh sign-in)', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'jsicloud-trust-'));
+    cleanups.push(async () => {
+      await fs.rm(dir, { recursive: true, force: true }).catch(() => undefined);
+    });
+
+    // --- RUN 1: a 2FA-challenged account completes 2FA + trust. The full mock
+    // router (installed by beforeEach) drives the real create() factory, and the
+    // SessionStore persists session_token + trust_token + cookies to `dir`. ---
+    const run1 = await IcloudAuthService.create(
+      { accountName: REQUIRES_2FA_USER, password: VALID_PASSWORD, cookieDir: dir },
+      stubSecrets(),
+    );
+    expect(run1.requires2fa).toBe(true); // challenged on first login
+
+    expect(await run1.validate2faCode(VALID_2FA_CODE)).toBe(true);
+    expect(run1.requires2fa).toBe(false); // trusted after validate + trustSession
+    expect(run1.isTrustedSession).toBe(true);
+
+    // The trusted state really hit disk (this is what the next run reloads).
+    const sanitized = REQUIRES_2FA_USER.replace(/[^A-Za-z0-9_]/g, '');
+    const persisted = JSON.parse(
+      await fs.readFile(path.join(dir, `${sanitized}.session`), 'utf8'),
+    );
+    expect(persisted.session_token).toBeDefined();
+    expect(persisted.trust_token).toBe(TRUST_TOKEN_VALUE);
+
+    // --- RUN 2: a brand-new create() with the SAME cookieDir. Drop the router
+    // and register ONLY a /validate mock plus sign-in TRIPWIRES — if the reuse
+    // path fails and a fresh SRP sign-in is attempted, signinHit flips (and with
+    // NetConnect disabled an unmocked call would throw loudly anyway). ---
+    nock.cleanAll();
+    const loginWorking = JSON.parse(
+      await fs.readFile(
+        path.join(__dirname, 'fixtures', 'account-login.json'),
+        'utf8',
+      ),
+    );
+    let validateHit = false;
+    let signinHit = false;
+    nock('https://idmsa.apple.com')
+      .get('/appleauth/auth/authorize/signin')
+      .query(true)
+      .reply(() => {
+        signinHit = true;
+        return [200, '<html></html>', { 'Content-Type': 'text/html' }];
+      });
+    nock('https://idmsa.apple.com')
+      .post('/appleauth/auth/signin/init')
+      .query(true)
+      .reply(() => {
+        signinHit = true;
+        return [200, {}, { 'Content-Type': 'application/json' }];
+      });
+    nock('https://setup.icloud.com')
+      .post('/setup/ws/1/validate')
+      .reply(() => {
+        validateHit = true;
+        return [200, loginWorking, { 'Content-Type': 'application/json' }];
+      });
+
+    const run2 = await IcloudAuthService.create(
+      { accountName: REQUIRES_2FA_USER, password: VALID_PASSWORD, cookieDir: dir },
+      stubSecrets(),
+    );
+
+    expect(validateHit).toBe(true); // took the {SETUP}/validate fast path
+    expect(signinHit).toBe(false); // NO fresh SRP sign-in (and so NO 2FA prompt)
+    expect(run2.requires2fa).toBe(false); // 2FA SKIPPED on the next run
+    expect(run2.isTrustedSession).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
