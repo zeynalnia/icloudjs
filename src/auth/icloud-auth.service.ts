@@ -425,18 +425,32 @@ export class IcloudAuthService implements IcloudAuthLike {
    * when present; `overrides` win (2FA sets `Accept: application/json`).
    */
   getAuthHeaders(overrides?: Record<string, string>): Record<string, string> {
+    // The AUTH (idmsa) calls must present an idmsa Origin/Referer and the fraud
+    // -detection client-info header, or Apple answers the SRP endpoints with
+    // `404 Not Found` (matches the working `icloud.js` AUTH_HEADERS). The Origin
+    // tracks the (possibly `.com.cn`) auth host; the OAuth widget/redirect stay
+    // GLOBAL even in CN (preserve — matches Apple's auth widget).
+    const authOrigin = new URL(this.endpoints.AUTH).origin;
     const headers: Record<string, string> = {
-      Accept: '*/*',
+      Accept: 'application/json',
       'Content-Type': 'application/json',
+      Origin: authOrigin,
+      Referer: `${authOrigin}/`,
       'X-Apple-OAuth-Client-Id': OAUTH.CLIENT_ID,
       'X-Apple-OAuth-Client-Type': 'firstPartyAuth',
-      // GLOBAL even in CN (preserve — matches Apple's auth widget).
       'X-Apple-OAuth-Redirect-URI': OAUTH.REDIRECT_URI,
       'X-Apple-OAuth-Require-Grant-Code': 'true',
       'X-Apple-OAuth-Response-Mode': 'web_message',
       'X-Apple-OAuth-Response-Type': 'code',
       'X-Apple-OAuth-State': this.clientId,
       'X-Apple-Widget-Key': OAUTH.CLIENT_ID,
+      'X-Apple-I-FD-Client-Info': JSON.stringify({
+        U: DEFAULT_USER_AGENT,
+        L: 'en-US',
+        Z: 'GMT+00:00',
+        V: '1.1',
+        F: '',
+      }),
     };
 
     // Echo the multi-step handshake headers (the HTTP request interceptor also

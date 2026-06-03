@@ -368,6 +368,8 @@ describe('China mode (hosts .com.cn) + GLOBAL OAuth redirect', () => {
     let signinHost: string | undefined;
     let redirectHeader: string | undefined;
     let widgetKeyHeader: string | undefined;
+    let originHeader: string | undefined;
+    let fdClientInfoHeader: string | undefined;
 
     // OAuth widget warm-up on the CN host (required before signin/init).
     nock('https://idmsa.apple.com.cn')
@@ -386,6 +388,8 @@ describe('China mode (hosts .com.cn) + GLOBAL OAuth redirect', () => {
         const h = this.req.headers as Record<string, string>;
         redirectHeader = h['x-apple-oauth-redirect-uri'];
         widgetKeyHeader = h['x-apple-widget-key'];
+        originHeader = h['origin'];
+        fdClientInfoHeader = h['x-apple-i-fd-client-info'];
         return [
           200,
           {
@@ -443,6 +447,12 @@ describe('China mode (hosts .com.cn) + GLOBAL OAuth redirect', () => {
     expect(redirectHeader).toBe(OAUTH.REDIRECT_URI);
     expect(redirectHeader).toBe('https://www.icloud.com');
     expect(widgetKeyHeader).toBe(OAUTH.CLIENT_ID);
+
+    // The Origin tracks the (CN) auth host and the fraud-detection client-info
+    // header is present — both required or Apple 404s the SRP endpoints.
+    expect(originHeader).toBe('https://idmsa.apple.com.cn');
+    expect(fdClientInfoHeader).toBeDefined();
+    expect(JSON.parse(fdClientInfoHeader as string)).toMatchObject({ V: '1.1' });
 
     // The CN account-login fixture still resolved correctly.
     expect(service.getWebserviceUrl('drivews')).toBe(
