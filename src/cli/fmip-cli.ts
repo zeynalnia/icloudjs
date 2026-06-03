@@ -183,6 +183,7 @@ interface CliOptions {
   lostPassword: string;
   lostMessage: string;
   outputToFile: boolean;
+  json: boolean;
 }
 
 /**
@@ -198,69 +199,74 @@ export function buildProgram(): Command {
     .description('Find My iPhone CommandLine Tool')
     .helpOption(false)
     .allowExcessArguments(true)
-    .option('--username <username>', 'Apple ID to Use', '')
+    .option('-u, --username <username>', 'Apple ID to Use', '')
     .option(
-      '--password <password>',
+      '-p, --password <password>',
       'Apple ID Password to Use; if unspecified, password will be fetched from the system keyring.',
       '',
     )
     .option(
-      '--china-mainland',
+      '-c, --china-mainland',
       'If the country/region setting of the Apple ID is China mainland',
       false,
     )
     .option('-n, --non-interactive', 'Disable interactive prompts.', false)
     .option(
-      '--delete-from-keyring',
+      '-D, --delete-from-keyring',
       'Delete stored password in system keyring for this username.',
       false,
     )
     .option(
-      '--list',
+      '-l, --list',
       'Short Listings for Device(s) associated with account',
       false,
     )
     .option(
-      '--llist',
+      '-L, --llist',
       'Detailed Listings for Device(s) associated with account',
       false,
     )
     .option(
-      '--locate',
+      '-o, --locate',
       'Retrieve Location for the iDevice (non-exclusive).',
       false,
     )
-    .option('--device <device_id>', 'Only effect this device', '')
-    .option('--sound', 'Play a sound on the device', false)
+    .option('-d, --device <device_id>', 'Only effect this device', '')
+    .option('-s, --sound', 'Play a sound on the device', false)
     .option(
-      '--message <message>',
+      '-m, --message <message>',
       'Optional Text Message to display with a sound',
       '',
     )
     .option(
-      '--silentmessage <message>',
+      '-S, --silentmessage <message>',
       'Optional Text Message to display with no sounds',
       '',
     )
-    .option('--lostmode', 'Enable Lost mode for the device', false)
+    .option('-M, --lostmode', 'Enable Lost mode for the device', false)
     .option(
-      '--lostphone <number>',
+      '-P, --lostphone <number>',
       'Phone Number allowed to call when lost mode is enabled',
       '',
     )
     .option(
-      '--lostpassword <passcode>',
+      '-W, --lostpassword <passcode>',
       'Forcibly active this passcode on the idevice',
       '',
     )
     .option(
-      '--lostmessage <message>',
+      '-G, --lostmessage <message>',
       'Forcibly display this message when activating lost mode.',
       '',
     )
     .option(
-      '--outputfile',
+      '-O, --outputfile',
       'Save device data to a file in the current directory.',
+      false,
+    )
+    .option(
+      '-j, --json',
+      'Output machine-readable JSON instead of plain text.',
       false,
     );
   return program;
@@ -300,6 +306,7 @@ function parseArgs(argv: string[]): CliOptions {
     lostPassword: opts.lostpassword ?? '',
     lostMessage: opts.lostmessage ?? '',
     outputToFile: !!opts.outputfile,
+    json: !!opts.json,
   };
 }
 
@@ -463,6 +470,10 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<void> {
   // matches. There is no single-device lookup.
   // ----------------------------------------------------------------------
   const manager = await api!.findMyiPhone();
+  // In `--json` mode every processed device contributes one entry here; the
+  // whole array is emitted with a single `JSON.stringify` AFTER the loop so the
+  // output is one valid JSON document. In text mode this stays empty/unused.
+  const results: unknown[] = [];
   for (const dev of manager.all) {
     const id = String(dev.content.id);
     if (
@@ -472,8 +483,12 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<void> {
       continue;
     }
 
+    // The located object (the fake resolves this to `content.location`). Capture
+    // it once; per the existing service contract `location()` returns the
+    // location object, but fall back to `content.location` if it returns void.
+    let located: unknown;
     if (options.locate) {
-      await dev.location();
+      located = (await dev.location()) ?? dev.content.location;
     }
 
     if (options.outputToFile) {
@@ -482,25 +497,65 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<void> {
     }
 
     const contents = dev.content;
-    if (options.longlist) {
-      deps.log('-'.repeat(30));
-      deps.log(String(contents.name));
-      for (const key of Object.keys(contents)) {
-        deps.log(`${key.padStart(20)} - ${formatValue(contents[key])}`);
+
+    if (options.json) {
+      // Build this device's structured entry; identity is always present, the
+      // listing/locate keys mirror the active flags (non-exclusive).
+      const entry: Record<string, unknown> = { id: String(contents.id) };
+      if (options.list) {
+        entry.list = {
+          name: String(contents.name),
+          displayName: String(contents.deviceDisplayName),
+          location: formatLocation(contents.location),
+          mapsUrl: mapsUrl(contents.location),
+          batteryLevel: String(contents.batteryLevel),
+          batteryStatus: String(contents.batteryStatus),
+          deviceClass: String(contents.deviceClass),
+          deviceModel: String(contents.deviceModel),
+        };
       }
-    } else if (options.list) {
-      deps.log('-'.repeat(30));
-      deps.log(`Name - ${String(contents.name)}`);
-      deps.log(`Display Name  - ${String(contents.deviceDisplayName)}`);
-      deps.log(`Location      - ${formatLocation(contents.location)}`);
-      const url = mapsUrl(contents.location);
-      if (url) {
-        deps.log(`View on Map   - ${url}`);
+      if (options.longlist) {
+        entry.llist = contents;
       }
-      deps.log(`Battery Level - ${String(contents.batteryLevel)}`);
-      deps.log(`Battery Status- ${String(contents.batteryStatus)}`);
-      deps.log(`Device Class  - ${String(contents.deviceClass)}`);
-      deps.log(`Device Model  - ${String(contents.deviceModel)}`);
+      if (options.locate) {
+        entry.locate = {
+          location: located,
+          locationText: formatLocation(located),
+          mapsUrl: mapsUrl(located),
+        };
+      }
+      results.push(entry);
+    } else {
+      if (options.longlist) {
+        deps.log('-'.repeat(30));
+        deps.log(String(contents.name));
+        for (const key of Object.keys(contents)) {
+          deps.log(`${key.padStart(20)} - ${formatValue(contents[key])}`);
+        }
+      } else if (options.list) {
+        deps.log('-'.repeat(30));
+        deps.log(`Name - ${String(contents.name)}`);
+        deps.log(`Display Name  - ${String(contents.deviceDisplayName)}`);
+        deps.log(`Location      - ${formatLocation(contents.location)}`);
+        const url = mapsUrl(contents.location);
+        if (url) {
+          deps.log(`View on Map   - ${url}`);
+        }
+        deps.log(`Battery Level - ${String(contents.batteryLevel)}`);
+        deps.log(`Battery Status- ${String(contents.batteryStatus)}`);
+        deps.log(`Device Class  - ${String(contents.deviceClass)}`);
+        deps.log(`Device Model  - ${String(contents.deviceModel)}`);
+      }
+
+      // Surface the located fix at the end of this device's text output (the
+      // map link only when there is a usable fix, matching the --list block).
+      if (options.locate) {
+        deps.log(`Location      - ${formatLocation(located)}`);
+        const url = mapsUrl(located);
+        if (url) {
+          deps.log(`View on Map   - ${url}`);
+        }
+      }
     }
 
     if (options.sound) {
@@ -554,6 +609,10 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<void> {
         );
       }
     }
+  }
+
+  if (options.json) {
+    deps.log(JSON.stringify(results, null, 2));
   }
 
   return void deps.exit(0);

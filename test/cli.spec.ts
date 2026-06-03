@@ -554,6 +554,199 @@ describe('runCli — --list field set', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Short-flag parsing equivalence
+// ---------------------------------------------------------------------------
+
+describe('runCli — short flag parsing', () => {
+  it('-l behaves like --list', async () => {
+    const a = makeDevice(DEVICE_A);
+    const { api } = makeApi([a]);
+    const { deps, out } = makeDeps({ api });
+
+    await runCli(['-u', 'u@x.com', '-p', 'pw', '-l'], deps);
+
+    const lines = out.filter((l) => l !== '-'.repeat(30));
+    expect(lines).toEqual([
+      `Name - ${DEVICE_A.name}`,
+      `Display Name  - ${DEVICE_A.deviceDisplayName}`,
+      `Location      - 45.1, 6.1`,
+      `View on Map   - https://www.google.com/maps/search/?api=1&query=45.1,6.1`,
+      `Battery Level - ${DEVICE_A.batteryLevel}`,
+      `Battery Status- ${DEVICE_A.batteryStatus}`,
+      `Device Class  - ${DEVICE_A.deviceClass}`,
+      `Device Model  - ${DEVICE_A.deviceModel}`,
+    ]);
+  });
+
+  it('-d <id> filters like --device <id>', async () => {
+    const a = makeDevice(DEVICE_A);
+    const b = makeDevice(DEVICE_B);
+    const { api } = makeApi([a, b]);
+    const { deps } = makeDeps({ api });
+
+    await runCli(['-u', 'u@x.com', '-p', 'pw', '-d', 'iPhone12,1', '-o'], deps);
+
+    expect(a.location).toHaveBeenCalledTimes(1);
+    expect(b.location).not.toHaveBeenCalled();
+  });
+
+  it('-o behaves like --locate (runs location on each device)', async () => {
+    const a = makeDevice(DEVICE_A);
+    const b = makeDevice(DEVICE_B);
+    const { api } = makeApi([a, b]);
+    const { deps, exit } = makeDeps({ api });
+
+    await runCli(['-u', 'u@x.com', '-p', 'pw', '-o'], deps);
+
+    expect(a.location).toHaveBeenCalledTimes(1);
+    expect(b.location).toHaveBeenCalledTimes(1);
+    expect(exit).toHaveBeenCalledWith(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// --locate text output
+// ---------------------------------------------------------------------------
+
+describe('runCli — --locate text output', () => {
+  it('prints the Location line and a map link for a located device', async () => {
+    const a = makeDevice(DEVICE_A);
+    const { api } = makeApi([a]);
+    const { deps, out } = makeDeps({ api });
+
+    await runCli(['--username', 'u@x.com', '--password', 'pw', '--locate'], deps);
+
+    const joined = out.join('\n');
+    expect(joined).toContain('Location      - 45.1, 6.1');
+    expect(joined).toContain(
+      'View on Map   - https://www.google.com/maps/search/?api=1&query=45.1,6.1',
+    );
+  });
+
+  it('prints "unknown" and no map link for a device without a fix', async () => {
+    const b = makeDevice(DEVICE_B);
+    const { api } = makeApi([b]);
+    const { deps, out } = makeDeps({ api });
+
+    await runCli(['--username', 'u@x.com', '--password', 'pw', '--locate'], deps);
+
+    const joined = out.join('\n');
+    expect(joined).toContain('Location      - unknown');
+    expect(joined).not.toContain('View on Map');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// --json output
+// ---------------------------------------------------------------------------
+
+describe('runCli — --json output', () => {
+  it('emits a single valid JSON array, one entry per processed device', async () => {
+    const a = makeDevice(DEVICE_A);
+    const b = makeDevice(DEVICE_B);
+    const { api } = makeApi([a, b]);
+    const { deps, out } = makeDeps({ api });
+
+    await runCli(['--username', 'u@x.com', '--password', 'pw', '--json'], deps);
+
+    // Exactly one stdout write: the JSON document.
+    expect(out).toHaveLength(1);
+    const parsed = JSON.parse(out[0]);
+    expect(Array.isArray(parsed)).toBe(true);
+    expect(parsed).toHaveLength(2);
+    expect(parsed[0].id).toBe('iPhone12,1');
+    expect(parsed[1].id).toBe('MacBookPro10,1');
+  });
+
+  it('-j with --list yields parseable JSON whose [0].list has the curated fields', async () => {
+    const a = makeDevice(DEVICE_A);
+    const { api } = makeApi([a]);
+    const { deps, out } = makeDeps({ api });
+
+    await runCli(['-u', 'u@x.com', '-p', 'pw', '-l', '-j'], deps);
+
+    expect(out).toHaveLength(1);
+    const parsed = JSON.parse(out[0]);
+    expect(parsed[0].list).toEqual({
+      name: String(DEVICE_A.name),
+      displayName: String(DEVICE_A.deviceDisplayName),
+      location: '45.1, 6.1',
+      mapsUrl: 'https://www.google.com/maps/search/?api=1&query=45.1,6.1',
+      batteryLevel: String(DEVICE_A.batteryLevel),
+      batteryStatus: String(DEVICE_A.batteryStatus),
+      deviceClass: String(DEVICE_A.deviceClass),
+      deviceModel: String(DEVICE_A.deviceModel),
+    });
+  });
+
+  it('-j with --locate yields [0].locate with location, text and mapsUrl', async () => {
+    const a = makeDevice(DEVICE_A);
+    const { api } = makeApi([a]);
+    const { deps, out } = makeDeps({ api });
+
+    await runCli(['-u', 'u@x.com', '-p', 'pw', '-o', '-j'], deps);
+
+    const parsed = JSON.parse(out[0]);
+    expect(parsed[0].locate).toEqual({
+      location: DEVICE_A.location,
+      locationText: '45.1, 6.1',
+      mapsUrl: 'https://www.google.com/maps/search/?api=1&query=45.1,6.1',
+    });
+  });
+
+  it('-j --locate gives a null mapsUrl for a device without a fix', async () => {
+    const b = makeDevice(DEVICE_B);
+    const { api } = makeApi([b]);
+    const { deps, out } = makeDeps({ api });
+
+    await runCli(['-u', 'u@x.com', '-p', 'pw', '-o', '-j'], deps);
+
+    const parsed = JSON.parse(out[0]);
+    expect(parsed[0].locate.mapsUrl).toBeNull();
+    expect(parsed[0].locate.locationText).toBe('unknown');
+  });
+
+  it('-j with --llist embeds the full content blob', async () => {
+    const a = makeDevice({ id: 'X1', name: 'Phone', features: { CLK: true } });
+    const { api } = makeApi([a]);
+    const { deps, out } = makeDeps({ api });
+
+    await runCli(['-u', 'u@x.com', '-p', 'pw', '-L', '-j'], deps);
+
+    const parsed = JSON.parse(out[0]);
+    expect(parsed[0].llist).toEqual({
+      id: 'X1',
+      name: 'Phone',
+      features: { CLK: true },
+    });
+  });
+
+  it('-j with --device filtering yields only the matching entry', async () => {
+    const a = makeDevice(DEVICE_A);
+    const b = makeDevice(DEVICE_B);
+    const { api } = makeApi([a, b]);
+    const { deps, out } = makeDeps({ api });
+
+    await runCli(['-u', 'u@x.com', '-p', 'pw', '-d', 'MacBookPro10,1', '-j'], deps);
+
+    const parsed = JSON.parse(out[0]);
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0].id).toBe('MacBookPro10,1');
+  });
+
+  it('-j with no matching device emits an empty array', async () => {
+    const a = makeDevice(DEVICE_A);
+    const { api } = makeApi([a]);
+    const { deps, out } = makeDeps({ api });
+
+    await runCli(['-u', 'u@x.com', '-p', 'pw', '-d', 'no-such-id', '-j'], deps);
+
+    expect(out).toHaveLength(1);
+    expect(JSON.parse(out[0])).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Singular-device actions require --device
 // ---------------------------------------------------------------------------
 

@@ -387,25 +387,28 @@ jsicloud --username me@icloud.com --list
 
 ### Flags
 
+Every flag has a short and long form (short flags are case-sensitive).
+
 | Flag | Description |
 |---|---|
-| `--username <username>` | Apple ID to use (**required**). |
-| `--password <password>` | Apple ID password; if omitted, fetched from the keyring. |
-| `--china-mainland` | Use the China-mainland (`.com.cn`) endpoints. |
+| `-u, --username <username>` | Apple ID to use (**required**). |
+| `-p, --password <password>` | Apple ID password; if omitted, fetched from the keyring. |
+| `-c, --china-mainland` | Use the China-mainland (`.com.cn`) endpoints. |
 | `-n, --non-interactive` | Disable interactive prompts for the whole run. |
-| `--delete-from-keyring` | Delete the stored password for this username, then continue to login. |
-| `--list` | Short listing for each device. |
-| `--llist` | Detailed (full) listing for each device. |
-| `--locate` | Refresh location for each device (non-exclusive). |
-| `--device <device_id>` | Restrict singular-device actions to this device id. |
-| `--sound` | Play a sound (requires `--device`). |
-| `--message <message>` | Display a message **with** sound (requires `--device`). |
-| `--silentmessage <message>` | Display a message with **no** sound (requires `--device`). |
-| `--lostmode` | Enable Lost Mode (requires `--device`). |
-| `--lostphone <number>` | Phone number allowed to call in Lost Mode. |
-| `--lostpassword <passcode>` | Passcode to force on the device in Lost Mode. |
-| `--lostmessage <message>` | Message to show when activating Lost Mode. |
-| `--outputfile` | Save each device's data to `<name>.fmip_snapshot.json` in the current directory. |
+| `-D, --delete-from-keyring` | Delete the stored password for this username, then continue to login. |
+| `-l, --list` | Short listing for each device. |
+| `-L, --llist` | Detailed (full) listing for each device. |
+| `-o, --locate` | Refresh **and print** the location for each device (non-exclusive). |
+| `-j, --json` | Print machine-readable JSON (a single array, one entry per device) instead of plain text. |
+| `-d, --device <device_id>` | Restrict singular-device actions to this device id. |
+| `-s, --sound` | Play a sound (requires `--device`). |
+| `-m, --message <message>` | Display a message **with** sound (requires `--device`). |
+| `-S, --silentmessage <message>` | Display a message with **no** sound (requires `--device`). |
+| `-M, --lostmode` | Enable Lost Mode (requires `--device`). |
+| `-P, --lostphone <number>` | Phone number allowed to call in Lost Mode. |
+| `-W, --lostpassword <passcode>` | Passcode to force on the device in Lost Mode. |
+| `-G, --lostmessage <message>` | Message to show when activating Lost Mode. |
+| `-O, --outputfile` | Save each device's data to `<name>.fmip_snapshot.json` in the current directory. |
 
 ### Exit codes
 
@@ -422,11 +425,14 @@ jsicloud --username me@icloud.com --list
 ### Examples
 
 ```bash
-# Short list of all devices.
+# Short list of all devices (short flags work too: -u, -l).
 jsicloud --username me@icloud.com --list
 
 # Detailed list and locate every device.
 jsicloud --username me@icloud.com --llist --locate
+
+# Locate every device and emit JSON (pipe into jq, etc.).
+jsicloud -u me@icloud.com -o -j | jq '.[].locate'
 
 # Play a sound on a single device.
 jsicloud --username me@icloud.com --device iPhone12,1 --sound
