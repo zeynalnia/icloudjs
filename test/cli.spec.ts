@@ -23,6 +23,7 @@ import {
   CliDeps,
   DEVICE_ERROR,
   formatLocation,
+  formatValue,
   mapsUrl,
   runCli,
 } from '../src/cli/fmip-cli';
@@ -516,8 +517,14 @@ describe('runCli — --list field set', () => {
     );
   });
 
-  it('--llist (long list) prints every content key', async () => {
-    const a = makeDevice({ id: 'X1', name: 'Phone', foo: 'bar' });
+  it('--llist (long list) prints every content key, JSON-encoding objects/arrays', async () => {
+    const a = makeDevice({
+      id: 'X1',
+      name: 'Phone',
+      foo: 'bar',
+      features: { CLK: true, KEY: false },
+      audioChannels: [{ ch: 1 }, { ch: 2 }],
+    });
     const { api } = makeApi([a]);
     const { deps, out } = makeDeps({ api });
 
@@ -526,6 +533,23 @@ describe('runCli — --list field set', () => {
     const joined = out.join('\n');
     expect(joined).toContain('Phone');
     expect(joined).toContain('foo'.padStart(20) + ' - bar');
+    // Nested object / array are JSON-encoded, not "[object Object]".
+    expect(joined).not.toContain('[object Object]');
+    expect(joined).toContain(
+      'features'.padStart(20) + ' - {"CLK":true,"KEY":false}',
+    );
+    expect(joined).toContain(
+      'audioChannels'.padStart(20) + ' - [{"ch":1},{"ch":2}]',
+    );
+  });
+
+  it('formatValue JSON-encodes objects/arrays, leaves primitives plain', () => {
+    expect(formatValue('bar')).toBe('bar');
+    expect(formatValue(6)).toBe('6');
+    expect(formatValue(null)).toBe('null');
+    expect(formatValue(false)).toBe('false');
+    expect(formatValue({ a: 1 })).toBe('{"a":1}');
+    expect(formatValue([1, { b: 2 }])).toBe('[1,{"b":2}]');
   });
 });
 

@@ -88,6 +88,22 @@ export function mapsUrl(location: unknown): string | null {
 }
 
 /**
+ * Render an arbitrary device-content value for the long listing. Objects and
+ * arrays are JSON-encoded (so they don't collapse to `[object Object]`);
+ * primitives (and null/undefined) keep their plain string form.
+ */
+export function formatValue(value: unknown): string {
+  if (value !== null && typeof value === 'object') {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+  return String(value);
+}
+
+/**
  * The slice of an authenticated iCloud session that the CLI actually drives.
  *
  * Structurally compatible with {@link IcloudAuthService}: `main.ts` passes the
@@ -470,7 +486,7 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<void> {
       deps.log('-'.repeat(30));
       deps.log(String(contents.name));
       for (const key of Object.keys(contents)) {
-        deps.log(`${key.padStart(20)} - ${String(contents[key])}`);
+        deps.log(`${key.padStart(20)} - ${formatValue(contents[key])}`);
       }
     } else if (options.list) {
       deps.log('-'.repeat(30));
