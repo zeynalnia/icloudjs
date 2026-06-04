@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Upgraded NestJS 10 → 11 (`@nestjs/common`, `@nestjs/core`, `@nestjs/testing`).
+  No source changes — the library uses only `@nestjs/common` DI + `Logger`. This
+  also clears the `@nestjs/core` injection and transitive `file-type` DoS
+  advisories. NestJS 11 requires Node >= 20 (already satisfied by the >= 22 floor).
+
 ## [2.0.0] - 2026-06-04
 
 ### Fixed
