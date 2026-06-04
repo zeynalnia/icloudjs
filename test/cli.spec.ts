@@ -772,7 +772,7 @@ describe('runCli — --json output', () => {
     });
   });
 
-  it('-j with --device filtering yields only the matching entry', async () => {
+  it('-j with --device emits the single matching object (not an array)', async () => {
     const a = makeDevice(DEVICE_A);
     const b = makeDevice(DEVICE_B);
     const { api } = makeApi([a, b]);
@@ -781,11 +781,11 @@ describe('runCli — --json output', () => {
     await runCli(['-u', 'u@x.com', '-p', 'pw', '-d', 'MacBookPro10,1', '-j'], deps);
 
     const parsed = JSON.parse(out[0]);
-    expect(parsed).toHaveLength(1);
-    expect(parsed[0].id).toBe('MacBookPro10,1');
+    expect(Array.isArray(parsed)).toBe(false);
+    expect(parsed.id).toBe('MacBookPro10,1');
   });
 
-  it('-j with no matching device emits an empty array', async () => {
+  it('-j with --device and no matching device emits null', async () => {
     const a = makeDevice(DEVICE_A);
     const { api } = makeApi([a]);
     const { deps, out } = makeDeps({ api });
@@ -793,7 +793,7 @@ describe('runCli — --json output', () => {
     await runCli(['-u', 'u@x.com', '-p', 'pw', '-d', 'no-such-id', '-j'], deps);
 
     expect(out).toHaveLength(1);
-    expect(JSON.parse(out[0])).toEqual([]);
+    expect(JSON.parse(out[0])).toBeNull();
   });
 });
 

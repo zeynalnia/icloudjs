@@ -404,7 +404,7 @@ Every flag has a short and long form (short flags are case-sensitive).
 | `-l, --list` | Short listing for each device. |
 | `-L, --llist` | Detailed (full) listing for each device. |
 | `-o, --locate` | Actively locate **and print** each device's position (non-exclusive). Polls Apple until a fresh fix lands — a single refresh only asks Apple to locate, so the first read is otherwise the stale (`isOld`) position. |
-| `-j, --json` | Print machine-readable JSON (a single array, one entry per device) instead of plain text. |
+| `-j, --json` | Print machine-readable JSON instead of plain text: an array with one entry per device, or — when `--device <id>` is given — the single matching device object (or `null` if no device matched). |
 | `-d, --device <device_id>` | Restrict singular-device actions to this device id. |
 | `-s, --sound` | Play a sound (requires `--device`). |
 | `-m, --message <message>` | Display a message **with** sound (requires `--device`). |

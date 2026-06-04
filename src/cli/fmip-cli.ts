@@ -679,7 +679,11 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<void> {
   }
 
   if (options.json) {
-    deps.log(JSON.stringify(results, null, 2));
+    // `--device <id>` filters to at most one device (ids are unique), so emit a
+    // single object (or `null` when nothing matched) instead of a one-element
+    // array. Without `--device`, callers expect the full array of devices.
+    const output = options.deviceId ? results[0] ?? null : results;
+    deps.log(JSON.stringify(output, null, 2));
   }
 
   return void deps.exit(0);
