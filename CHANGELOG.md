@@ -10,10 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **BREAKING: minimum Node is now `>=22`** (was `>=18`). Upgraded
-  `http-cookie-agent` 6→8 and `axios-cookiejar-support` 5→7, both of which
-  require Node 22+. Node 18 and 20 are end-of-life; CI and the publish workflow
-  now run on Node 22. The test runner transpiles these now-ESM-only dependencies
-  via ts-jest.
+  `http-cookie-agent` 6→8, `axios-cookiejar-support` 5→7, and `commander` 12→15,
+  all of which require Node 22+ (commander recommends 22.12+). Node 18 and 20 are
+  end-of-life; CI and the publish workflow now run on Node 22. The test runner
+  transpiles these now-ESM-only dependencies via ts-jest.
 
 ## [1.1.0] - 2026-06-04
 
