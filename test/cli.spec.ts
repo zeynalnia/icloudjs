@@ -38,6 +38,7 @@ import { PyiCloudFailedLoginException } from '../src/exceptions/icloud.exception
 interface FakeDevice {
   content: Record<string, unknown>;
   location: jest.Mock;
+  locate: jest.Mock;
   status: jest.Mock;
   playSound: jest.Mock;
   displayMessage: jest.Mock;
@@ -48,6 +49,7 @@ function makeDevice(content: Record<string, unknown>): FakeDevice {
   return {
     content,
     location: jest.fn().mockResolvedValue(content.location),
+    locate: jest.fn().mockResolvedValue(content.location),
     status: jest.fn().mockResolvedValue({}),
     playSound: jest.fn().mockResolvedValue(undefined),
     displayMessage: jest.fn().mockResolvedValue(undefined),
@@ -468,8 +470,8 @@ describe('runCli — per-device loop & id filter', () => {
       deps,
     );
 
-    expect(a.location).toHaveBeenCalledTimes(1);
-    expect(b.location).toHaveBeenCalledTimes(1);
+    expect(a.locate).toHaveBeenCalledTimes(1);
+    expect(b.locate).toHaveBeenCalledTimes(1);
     expect(exit).toHaveBeenCalledWith(0);
   });
 
@@ -492,8 +494,8 @@ describe('runCli — per-device loop & id filter', () => {
       deps,
     );
 
-    expect(a.location).toHaveBeenCalledTimes(1);
-    expect(b.location).not.toHaveBeenCalled();
+    expect(a.locate).toHaveBeenCalledTimes(1);
+    expect(b.locate).not.toHaveBeenCalled();
   });
 
   it('matches the device id case-insensitively and trimmed', async () => {
@@ -513,7 +515,7 @@ describe('runCli — per-device loop & id filter', () => {
       ],
       deps,
     );
-    expect(a.location).toHaveBeenCalledTimes(1);
+    expect(a.locate).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -635,11 +637,11 @@ describe('runCli — short flag parsing', () => {
 
     await runCli(['-u', 'u@x.com', '-p', 'pw', '-d', 'iPhone12,1', '-o'], deps);
 
-    expect(a.location).toHaveBeenCalledTimes(1);
-    expect(b.location).not.toHaveBeenCalled();
+    expect(a.locate).toHaveBeenCalledTimes(1);
+    expect(b.locate).not.toHaveBeenCalled();
   });
 
-  it('-o behaves like --locate (runs location on each device)', async () => {
+  it('-o behaves like --locate (runs locate on each device)', async () => {
     const a = makeDevice(DEVICE_A);
     const b = makeDevice(DEVICE_B);
     const { api } = makeApi([a, b]);
@@ -647,8 +649,8 @@ describe('runCli — short flag parsing', () => {
 
     await runCli(['-u', 'u@x.com', '-p', 'pw', '-o'], deps);
 
-    expect(a.location).toHaveBeenCalledTimes(1);
-    expect(b.location).toHaveBeenCalledTimes(1);
+    expect(a.locate).toHaveBeenCalledTimes(1);
+    expect(b.locate).toHaveBeenCalledTimes(1);
     expect(exit).toHaveBeenCalledWith(0);
   });
 });

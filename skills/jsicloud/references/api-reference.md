@@ -322,7 +322,8 @@ class AppleDevice {
   content: AppleDeviceContent
   get data(): AppleDeviceContent
   update(data: AppleDeviceContent): void           // [local]
-  async location(): Promise<unknown>               // [I/O] whole-list refresh then read content.location
+  async location(): Promise<unknown>               // [I/O] single whole-list refresh then read content.location (may be the stale isOld fix)
+  async locate(opts?: { attempts?: number; intervalMs?: number }): Promise<unknown>  // [I/O] polls refreshClient (default 6× / 5000ms) until a FRESH (non-isOld) fix lands, else best-known
   async status(additional?: string[]): Promise<Record<string, unknown>>  // [I/O] batteryLevel/deviceDisplayName/deviceStatus/name + additional
   async playSound(subject?: string): Promise<void> // [I/O] default 'Find My iPhone Alert'
   async displayMessage(options?: DisplayMessageOptions): Promise<void>    // [I/O]

@@ -181,8 +181,13 @@ try {
   throw e;
 }
 
-// Live location (triggers a whole-list refresh)
-console.log(await phone.location());
+// Location. `location()` does ONE refresh and returns whatever Apple has cached
+// right now — after a while that is the previous, `isOld` fix (a refresh only
+// ASKS Apple to locate; the new position lands seconds later). Use `locate()` to
+// poll until that fresh fix arrives.
+console.log(await phone.location());                  // single-shot (may be stale)
+console.log(await phone.locate());                    // waits for a fresh fix (default 6 polls × 5s)
+console.log(await phone.locate({ attempts: 10, intervalMs: 3000 })); // tune the budget
 
 // Status subset
 console.log(await phone.status(['isLocating', 'lostModeCapable']));

@@ -266,6 +266,70 @@ describe('AppleDevice.location / status (whole-list refresh)', () => {
   });
 });
 
+describe('AppleDevice.locate (poll until a fresh fix)', () => {
+  const STALE = { latitude: 1, longitude: 2, isOld: true, locationFinished: false };
+  const FRESH = { latitude: 3, longitude: 4, isOld: false, locationFinished: true };
+
+  /** A one-device refresh body whose sole device carries `location`. */
+  function oneDeviceFixture(location: unknown): Record<string, unknown> {
+    return { content: [{ id: 'iPhone1,1', name: 'X', location }] };
+  }
+
+  it('returns immediately (no extra refresh) when init already has a fresh fix', async () => {
+    // The fixture's first device has `isOld: false`, so locate() is settled.
+    const { service, refreshHits } = await makeManager();
+    expect(refreshHits).toHaveLength(1); // only init()
+
+    const dev = service.get(0);
+    const loc = await dev.locate({ attempts: 5, intervalMs: 1 });
+
+    expect(refreshHits).toHaveLength(1); // settled — no additional refresh
+    expect((loc as { isOld?: boolean }).isOld).toBe(false);
+  });
+
+  it('keeps polling refreshClient until a non-stale fix arrives', async () => {
+    const http = await makeHttp();
+    let calls = 0;
+    nock(FMIP_HOST)
+      .persist()
+      .post(`${FMIP_PATH}/refreshClient`)
+      .query(true)
+      .reply(() => {
+        calls += 1;
+        // init=1 (stale), poll #1=2 (stale), poll #2=3 (fresh).
+        const loc = calls >= 3 ? FRESH : STALE;
+        return [200, oneDeviceFixture(loc), { 'Content-Type': 'application/json' }];
+      });
+
+    const service = new FindMyiPhoneService(FMIP_ROOT, http, PARAMS, false);
+    await service.init();
+    const dev = service.get(0);
+    expect((dev.content.location as { isOld: boolean }).isOld).toBe(true); // stale after init
+
+    const loc = await dev.locate({ attempts: 5, intervalMs: 1 });
+
+    expect(loc).toEqual(FRESH);
+    expect(calls).toBe(3); // init + 2 polls; stopped as soon as fresh
+  });
+
+  it('returns the best-known (stale) location when no fresh fix lands within the budget', async () => {
+    const http = await makeHttp();
+    nock(FMIP_HOST)
+      .persist()
+      .post(`${FMIP_PATH}/refreshClient`)
+      .query(true)
+      .reply(200, oneDeviceFixture(STALE), { 'Content-Type': 'application/json' });
+
+    const service = new FindMyiPhoneService(FMIP_ROOT, http, PARAMS, false);
+    await service.init();
+    const dev = service.get(0);
+
+    const loc = await dev.locate({ attempts: 3, intervalMs: 1 });
+
+    expect((loc as { isOld: boolean }).isOld).toBe(true); // exhausted budget → best-known
+  });
+});
+
 describe('AppleDevice remote commands', () => {
   it('playSound hardcodes clientContext.fmly=true even when withFamily=false', async () => {
     const { service } = await makeManager(false); // manager built withFamily=false

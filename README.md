@@ -302,7 +302,8 @@ const fmip = await auth.findMyiPhone(); // async — device list already refresh
 const device = fmip.get(0);             // by ordered index (number) ...
 // const device = fmip.get('iPhone12,1'); // ... or by device id (string)
 
-const loc = await device.location();
+const loc = await device.location();    // single refresh — may be the stale (isOld) fix
+const fresh = await device.locate();    // polls refreshClient until a FRESH fix lands (or the budget runs out)
 const status = await device.status();   // batteryLevel / deviceDisplayName / ...
 
 await device.playSound();               // default subject "Find My iPhone Alert"
@@ -402,7 +403,7 @@ Every flag has a short and long form (short flags are case-sensitive).
 | `-k, --encryption-key-file <path>` | Path to a base64-encoded 32-byte session-encryption key (overrides the keychain). |
 | `-l, --list` | Short listing for each device. |
 | `-L, --llist` | Detailed (full) listing for each device. |
-| `-o, --locate` | Refresh **and print** the location for each device (non-exclusive). |
+| `-o, --locate` | Actively locate **and print** each device's position (non-exclusive). Polls Apple until a fresh fix lands — a single refresh only asks Apple to locate, so the first read is otherwise the stale (`isOld`) position. |
 | `-j, --json` | Print machine-readable JSON (a single array, one entry per device) instead of plain text. |
 | `-d, --device <device_id>` | Restrict singular-device actions to this device id. |
 | `-s, --sound` | Play a sound (requires `--device`). |

@@ -218,7 +218,8 @@ for await (const asset of all) {                      // PhotoAlbum is AsyncIter
 // Find My iPhone
 const fmip  = await auth.findMyiPhone();
 const phone = fmip.get(0);                             // index OR fmip.get('iPhone12,1')
-await phone.location();
+await phone.location();                                // single-shot: may be the stale (isOld) fix
+await phone.locate();                                  // polls refreshClient until a FRESH fix lands
 await phone.playSound();
 
 // Account
@@ -325,8 +326,9 @@ try {
 `download(version?)`, `delete()`.
 
 `FindMyiPhoneService` — `await auth.findMyiPhone()`; `get(idOrIndex)`, `keys()`,
-`values()`, `all`, `refreshClient()`. `AppleDevice` — `location()`,
-`status(additional?)`, `playSound(subject?)`, `displayMessage(opts?)`,
+`values()`, `all`, `refreshClient()`. `AppleDevice` — `location()` (single-shot,
+may be the stale `isOld` fix), `locate({attempts?,intervalMs?})` (polls until a
+FRESH fix), `status(additional?)`, `playSound(subject?)`, `displayMessage(opts?)`,
 `lostDevice(opts)`, `data`.
 
 `SessionKeyService` (at-rest encryption key mgmt) — `generateKey()` → `Buffer`,

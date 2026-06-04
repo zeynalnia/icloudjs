@@ -540,11 +540,13 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<void> {
     }
 
     // The located object (the fake resolves this to `content.location`). Capture
-    // it once; per the existing service contract `location()` returns the
-    // location object, but fall back to `content.location` if it returns void.
+    // it once. Use `locate()` (not `location()`) so we POLL for a fresh fix: a
+    // single refresh only asks Apple to locate the device and returns the stale
+    // `isOld` position, so `location()` alone would print the old fix until the
+    // next run. Fall back to `content.location` if it resolves void.
     let located: unknown;
     if (options.locate) {
-      located = (await dev.location()) ?? dev.content.location;
+      located = (await dev.locate()) ?? dev.content.location;
     }
 
     if (options.outputToFile) {

@@ -29,6 +29,14 @@
 import { PyiCloudNoDevicesException } from '../exceptions/icloud.exceptions';
 import { IcloudHttpService } from '../session/icloud-http.service';
 
+/** Resolve after `ms` milliseconds (used to space out locate polling). */
+const delay = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Default polling budget for {@link AppleDevice.locate}. */
+const DEFAULT_LOCATE_ATTEMPTS = 6;
+const DEFAULT_LOCATE_INTERVAL_MS = 5000;
+
 /** The shape returned by the refresh endpoint (`refreshClient`). */
 interface RefreshClientResponse {
   /** One entry per device; each becomes an {@link AppleDevice}. */
@@ -238,10 +246,70 @@ export class AppleDevice {
   /**
    * Update and return the device location. Triggers a WHOLE-LIST refresh (there
    * is no per-device location endpoint) then reads the refreshed `location`.
+   *
+   * Single-shot (faithful to the pyicloud port): it returns whatever Apple has
+   * cached right now, which after a period of inactivity is the previous,
+   * `isOld: true` fix — a fresh `refreshClient` only ASKS Apple to locate the
+   * device; the new position arrives seconds later. Use {@link locate} when you
+   * need to wait for that fresh fix.
    */
   async location(): Promise<unknown> {
     await this.manager.refreshClient();
     return this.content.location;
+  }
+
+  /**
+   * Actively locate the device and wait for a FRESH fix.
+   *
+   * A `refreshClient` with `shouldLocate` only kicks off a locate request; the
+   * device reports its position a few seconds later. Reading immediately (as
+   * {@link location} does) therefore returns the stale, `isOld: true` fix — and
+   * the fresh one only shows up on a *later* call. This polls `refreshClient`
+   * up to `attempts` times, `intervalMs` apart, returning as soon as the locate
+   * settles (a fix that is present and not flagged `isOld`). If the device never
+   * reports a fresh fix within the budget (e.g. it is offline), the best-known
+   * location is returned — never throws for staleness.
+   *
+   * @param opts.attempts   Max `refreshClient` polls (default 6).
+   * @param opts.intervalMs Delay between polls in ms (default 5000).
+   */
+  async locate(
+    opts: { attempts?: number; intervalMs?: number } = {},
+  ): Promise<unknown> {
+    const attempts = Math.max(1, opts.attempts ?? DEFAULT_LOCATE_ATTEMPTS);
+    const intervalMs = opts.intervalMs ?? DEFAULT_LOCATE_INTERVAL_MS;
+
+    // The initial list refresh (run by init()) may already carry a fresh fix —
+    // avoid an extra round-trip in that case.
+    if (AppleDevice.isLocateSettled(this.content.location)) {
+      return this.content.location;
+    }
+
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      await this.manager.refreshClient();
+      if (AppleDevice.isLocateSettled(this.content.location)) {
+        return this.content.location;
+      }
+      if (attempt < attempts) {
+        await delay(intervalMs);
+      }
+    }
+    return this.content.location;
+  }
+
+  /**
+   * Whether a locate has produced a usable, current fix: a `location` object
+   * with coordinates that is NOT flagged `isOld`. Apple returns the previous
+   * fix with `isOld: true` (or `location: null`) while a locate is still in
+   * flight, so those keep the poll going.
+   */
+  private static isLocateSettled(location: unknown): boolean {
+    if (!location || typeof location !== 'object') {
+      return false;
+    }
+    const loc = location as Record<string, unknown>;
+    const hasFix = loc.latitude != null && loc.longitude != null;
+    return hasFix && loc.isOld !== true;
   }
 
   /**
