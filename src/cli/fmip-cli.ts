@@ -285,6 +285,11 @@ export function buildProgram(): Command {
       '-k, --encryption-key-file <path>',
       'Path to a base64-encoded 32-byte session-encryption key.',
       '',
+    )
+    .option(
+      '-v, --verbose',
+      'Print diagnostic logs to stderr (off by default; never touches stdout).',
+      false,
     );
   return program;
 }

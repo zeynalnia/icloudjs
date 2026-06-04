@@ -16,10 +16,13 @@
  */
 import * as readline from 'readline/promises';
 
+import { Logger } from '@nestjs/common';
+
 import { IcloudAuthService } from '../auth/icloud-auth.service';
 import { SecretsService } from '../secrets/secrets.service';
 import { SessionKeyService } from '../secrets/session-key.service';
 import { CliApi, CliDeps, runCli } from './fmip-cli';
+import { StderrCliLogger } from './cli-logger';
 
 /** Prompt for a single line of input on the controlling terminal. */
 async function prompt(question: string): Promise<string> {
@@ -42,6 +45,12 @@ async function confirm(question: string): Promise<boolean> {
 
 /** Build the real dependency bundle and run the CLI. */
 async function main(argv: string[]): Promise<void> {
+  // Route ALL library logging to stderr (quiet unless `--verbose`) so stdout
+  // carries only the command's data output (e.g. `--json`). Must run before any
+  // service is created, since authentication logs during `create()`.
+  const verbose = argv.includes('-v') || argv.includes('--verbose');
+  Logger.overrideLogger(new StderrCliLogger(verbose));
+
   const secrets = new SecretsService();
   const sessionKey = new SessionKeyService();
 
