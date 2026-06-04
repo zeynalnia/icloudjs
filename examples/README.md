@@ -21,7 +21,7 @@ they import from `../src` so they typecheck against the actual library types.
 
 ## Prerequisites
 
-- **Node.js ≥ 18** (the package declares `engines.node >= 18`).
+- **Node.js ≥ 22** (the package declares `engines.node >= 22`).
 - Install dependencies from the **package root** (one directory up):
 
   ```bash

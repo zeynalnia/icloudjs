@@ -95,7 +95,7 @@ All eight iCloud services are ported, reachable from a single authenticated
 
 ## Requirements
 
-- **Node.js >= 18** (declared in `engines`).
+- **Node.js >= 22** (declared in `engines`).
 - **[`keytar`](https://github.com/atom/node-keytar) `^7.9.0`** — a native module
   used for OS keyring access. It compiles against your platform's secret store
   (libsecret/GNOME Keyring on Linux, Keychain on macOS, Credential Vault on
@@ -538,7 +538,7 @@ cross-platform native addon that talks to each OS's built-in credential vault:
 Two caveats worth knowing:
 
 - **Native module.** `keytar` ships prebuilt binaries for current Node LTS
-  releases (covering the supported Node 18–24 range), so `npm install` needs no
+  releases (covering the supported Node 22–24 range), so `npm install` needs no
   compiler on Windows or macOS. On a very new/unusual Node where no prebuilt
   matches, it falls back to compiling from source (Windows then needs the
   [windows-build-tools](https://github.com/nodejs/node-gyp#on-windows)
