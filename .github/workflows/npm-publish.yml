@@ -69,10 +69,10 @@ jobs:
         run: npm run lint
 
       # No NODE_AUTH_TOKEN: npm authenticates via the GitHub OIDC token against
-      # the trusted publisher configured on npm. Provenance is disabled because
-      # this repository is private (provenance attestation requires a public
-      # repo); remove NPM_CONFIG_PROVENANCE to enable it if the repo goes public.
-      - name: Publish to npm (Trusted Publishing)
+      # the trusted publisher configured on npm. Provenance is ENABLED (the repo
+      # is public): npm attaches a signed provenance attestation linking the
+      # published tarball to this workflow run and commit.
+      - name: Publish to npm (Trusted Publishing + provenance)
         run: npm publish
         env:
-          NPM_CONFIG_PROVENANCE: false
+          NPM_CONFIG_PROVENANCE: true
