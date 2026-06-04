@@ -21,7 +21,7 @@ module.exports = {
     ],
   },
   transformIgnorePatterns: [
-    'node_modules/(?!(?:axios-cookiejar-support|http-cookie-agent|agent-base)/)',
+    'node_modules/(?!(?:axios-cookiejar-support|http-cookie-agent|agent-base|commander)/)',
   ],
   clearMocks: true,
   restoreMocks: true,
