@@ -7,6 +7,17 @@ updates:
     open-pull-requests-limit: 10
     labels:
       - dependencies
+    ignore:
+      # @types/node tracks the minimum supported runtime (engines: node >=18,
+      # CI on 20). Don't chase @types/node majors ahead of that floor.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      # uuid is used only via v1()/v4() with no `buf` argument, so the v3/v5/v6
+      # buffer-bounds advisory (GHSA-w5hq-g745-h8pq) is not reachable here, and
+      # uuid v10+ is ESM-only (friction for this CJS/ts-jest setup). Stay on 9.x
+      # for patches; revisit majors only with a deliberate ESM migration.
+      - dependency-name: "uuid"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: "/"
