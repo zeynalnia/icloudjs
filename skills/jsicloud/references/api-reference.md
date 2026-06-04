@@ -37,12 +37,14 @@ const ICLOUD_MODULE_OPTIONS: symbol  // Symbol('ICLOUD_MODULE_OPTIONS')
 |---|---|---|---|
 | `accountName` | `string` | **yes** | — |
 | `password` | `string` | no | keyring lookup by `accountName`, else interactive prompt |
-| `cookieDir` | `string` | no | `<os.tmpdir()>/jsicloud/<os-username>` (mode `0o700`) |
+| `cookieDir` | `string` | no | Per-user state dir (mode `0o700`, token files `0o600`): Linux `$XDG_STATE_HOME/jsicloud` (else `~/.local/state/jsicloud`), macOS `~/Library/Application Support/jsicloud`, Windows `%LOCALAPPDATA%\jsicloud`; `<os.tmpdir()>/jsicloud` fallback in headless envs |
 | `chinaMainland` | `boolean` | no | `false` (true → `.com.cn` AUTH/HOME/SETUP; OAuth stays global) |
 | `verify` | `boolean \| string` | no | `undefined` (`false` disables TLS verify — testing only; string = CA-bundle path) |
 | `clientId` | `string` | no | persisted `client_id`, else `auth-<uuidv1>` |
 | `withFamily` | `boolean` | no | `true` (include family-shared devices in Find My iPhone) |
 | `userAgent` | `string` | no | default browser-like UA (Apple may `503` non-browser UAs) |
+| `encrypt` | `boolean` | no | `true` — encrypt persisted session & cookies at rest (false = plaintext, debugging only) |
+| `encryptionKeyFile` | `string` | no | path to a base64-encoded 32-byte key file; overrides the keychain. When neither is set, a key is auto-created in the OS keychain |
 
 ---
 
@@ -51,8 +53,15 @@ const ICLOUD_MODULE_OPTIONS: symbol  // Symbol('ICLOUD_MODULE_OPTIONS')
 The constructor is **private** — use `create()` or the module.
 
 ```ts
-static async create(options: IcloudModuleOptions, secrets: SecretsService): Promise<IcloudAuthService>  // [I/O]
+static async create(
+  options: IcloudModuleOptions,
+  secrets: SecretsService,
+  sessionKey?: SessionKeyService,   // defaults to a real instance; resolves the at-rest encryption key
+): Promise<IcloudAuthService>       // [I/O]
 ```
+`create()` resolves the session-encryption key (`SessionKeyService`, see
+Infrastructure below) from `options.encrypt` / `options.encryptionKeyFile`
+before loading the session.
 
 ### Public fields
 ```ts
@@ -389,7 +398,8 @@ PyiCloudException (extends Error)
 ├── PyiCloudFailedLoginException                 (SIBLING of API exc — NOT a child)
 ├── PyiCloud2SARequiredException
 ├── PyiCloudNoStoredPasswordAvailableException
-└── PyiCloudNoDevicesException
+├── PyiCloudNoDevicesException
+└── PyiCloudSessionDecryptionException        (session/cookie decrypt failed — wrong key or corrupt file)
 ```
 ```ts
 class PyiCloudException extends Error { constructor(message?: string) }
@@ -404,6 +414,7 @@ class PyiCloudFailedLoginException extends PyiCloudException { constructor(messa
 class PyiCloud2SARequiredException extends PyiCloudException { constructor(appleId: string) }
 class PyiCloudNoStoredPasswordAvailableException extends PyiCloudException { constructor(message?: string) }
 class PyiCloudNoDevicesException extends PyiCloudException { constructor(message?: string) }
+class PyiCloudSessionDecryptionException extends PyiCloudException { constructor(message?: string) }  // wrong key or corrupted .session/.cookies.json
 ```
 All set `this.name` + `Object.setPrototypeOf`, so `instanceof` works after
 CommonJS transpile. Wrong 2FA/2SA codes do NOT throw (they return `false`).
@@ -454,13 +465,39 @@ interface IcloudRequestOptions {
 
 ### `SessionStore` (on-disk persistence — built inside `create()`)
 ```ts
-static async load(dir: string, sanitizedName: string): Promise<SessionStore>
+static async load(dir: string, sanitizedName: string, cipher?: SessionCipher): Promise<SessionStore>
 sessionData: SessionData
 readonly jar: CookieJar
 async saveSessionData(): Promise<void>   // → <name>.session
 async saveCookies(): Promise<void>       // → <name>.cookies.json
 async persistAll(): Promise<void>
 ```
+With a `cipher`, the `.session`/`.cookies.json` files are AES-256-GCM encrypted;
+without one they are plaintext. Legacy plaintext files are read transparently and
+re-written encrypted on the next persist. Both files keep mode `0o600`.
+
+### Encryption at rest (`SessionKeyService` / `SessionCipher`)
+```ts
+@Injectable()
+class SessionKeyService {
+  generateKey(): Buffer                                                   // [local] crypto.randomBytes(32)
+  async getKeyFromKeychain(account: string): Promise<Buffer | null>       // [I/O] keytar; throws if decoded length !== 32
+  async storeKeyInKeychain(account: string, key: Buffer): Promise<void>   // [I/O] keytar (base64)
+  async keyExistsInKeychain(account: string): Promise<boolean>           // [I/O]
+  async readKeyFile(filePath: string): Promise<Buffer>                    // [I/O] base64, trimmed; throws if length !== 32
+  async resolveKey(opts: { accountName: string; encrypt: boolean; encryptionKeyFile?: string }): Promise<Buffer | null>  // [I/O]
+}
+
+class SessionCipher {
+  constructor(key: Buffer)                          // throws if key.length !== 32
+  encrypt(plaintext: string): Buffer                // [local] MAGIC ++ IV(12) ++ TAG(16) ++ ciphertext (AES-256-GCM)
+  decrypt(blob: Buffer): string                     // [local] throws PyiCloudSessionDecryptionException on any failure
+  static looksEncrypted(buf: Buffer): boolean       // [local] first 4 bytes equal the MAGIC marker
+}
+```
+`resolveKey` priority: `!encrypt` → `null`; else `encryptionKeyFile` → that file;
+else the keychain key for `accountName`; else generate a fresh key, store it in the
+keychain, and return it (silent auto-create — the library default).
 
 ---
 
@@ -490,6 +527,7 @@ const BUILD: { clientBuildNumber; clientMasteringNumber; ckjsBuildVersion }
 const PHOTO_VERSION_LOOKUP: Record<string, string>   // {original:'resOriginal', medium:'resJPEGMed', thumb:'resJPEGThumb'}
 const VIDEO_VERSION_LOOKUP: Record<string, string>   // {original:'resOriginal', medium:'resVidMed', thumb:'resVidSmall'}
 const KEYRING_SERVICE: 'pyicloud://icloud-password'
+const SESSION_KEY_KEYRING_SERVICE: 'jsicloud://session-encryption-key'   // keychain service for the at-rest key
 interface SmartFolderDef { obj_type: string; list_type: string; direction: 'ASCENDING'|'DESCENDING'; query_filter: Array<{fieldName,comparator,fieldValue:{type,value}}> | null; }
 const SMART_FOLDERS: Record<string, SmartFolderDef>  // 'All Photos','Time-lapse','Videos','Slo-mo','Bursts','Favorites','Panoramas','Screenshots','Live','Recently Deleted','Hidden'
 ```

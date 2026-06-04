@@ -37,9 +37,12 @@ npm i jsicloud
   `reflect-metadata`, `rxjs`, `axios`, `tough-cookie`, `keytar`, `uuid`.
 - **`keytar` is a NATIVE module** (OS keychain bindings). It needs build tools
   (`python3`, a C++ toolchain) and, on headless Linux, `libsecret`
-  (`apt-get install libsecret-1-dev gnome-keyring`). If the OS keychain is
-  unavailable you **must pass `password` explicitly** (see below) so keytar is
-  never read.
+  (`apt-get install libsecret-1-dev gnome-keyring`). The keychain is read for
+  two things: the account `password` (when omitted) and the at-rest
+  **session-encryption key** (when `encrypt` is on, the default). If the OS
+  keychain is unavailable (typical for **cron/headless**), **pass `password`
+  explicitly** AND **set `encryptionKeyFile`** (a base64 key file) — or disable
+  encryption with `encrypt: false` — so keytar is never touched.
 - If you import the NestJS module, ensure `import 'reflect-metadata';` runs once
   at process start (Nest apps already do this).
 
@@ -103,12 +106,14 @@ IcloudModule.forRootAsync({
 |---|---|---|---|
 | `accountName` | `string` | **yes** | Apple ID / email |
 | `password` | `string` | no | If omitted, resolved from the keyring by `accountName` (throws if absent and non-interactive) |
-| `cookieDir` | `string` | no | Session/cookie dir. Default `<os.tmpdir()>/jsicloud/<os-username>` (mode `0o700`) |
+| `cookieDir` | `string` | no | Session/cookie dir. Default = per-user state dir (mode `0o700`, token files `0o600`): Linux `$XDG_STATE_HOME/jsicloud` (else `~/.local/state/jsicloud`), macOS `~/Library/Application Support/jsicloud`, Windows `%LOCALAPPDATA%\jsicloud`; `<os.tmpdir()>/jsicloud` fallback in headless envs |
 | `chinaMainland` | `boolean` | no | `false`. When `true`, AUTH/HOME/SETUP hosts switch to `.com.cn` (OAuth widget stays global) |
 | `verify` | `boolean \| string` | no | `false` disables TLS verification (testing only); a string is a path to a CA-bundle file |
 | `clientId` | `string` | no | Persisted client id, else a fresh `auth-<uuidv1>` |
 | `withFamily` | `boolean` | no | `true`. Include family-shared devices in Find My iPhone refreshes |
 | `userAgent` | `string` | no | Overrides the default browser-like UA. Apple may `503` non-browser User-Agents |
+| `encrypt` | `boolean` | no | `true`. Encrypt the persisted session + cookie files at rest (AES-256-GCM). `false` = plaintext (debugging only) |
+| `encryptionKeyFile` | `string` | no | Path to a file holding a base64-encoded 32-byte key; overrides the keychain. When neither this nor a stored key is present, a key is auto-created in the OS keychain |
 
 ## MANDATORY auth / 2FA / 2SA / trust flow
 
@@ -241,6 +246,7 @@ Catch these (all extend `PyiCloudException`, exported from the barrel):
 | `PyiCloudServiceNotActivatedException` | Webservice not provisioned (`getWebserviceUrl` miss) **or** Photos library not finished indexing | The service/library isn't ready; retry later or skip it. (Subclass of `PyiCloudAPIResponseException`.) |
 | `PyiCloudNoDevicesException` | Find My iPhone has no devices, or `fmip.get(...)` missed | Account has no devices / bad id. |
 | `PyiCloudNoStoredPasswordAvailableException` | No `password` given and keyring has no entry (non-interactive) | Pass `password` or store one in the keyring. |
+| `PyiCloudSessionDecryptionException` | A persisted session/cookie file could not be decrypted (wrong key or corrupted) | Provide the correct `encryptionKeyFile`, or delete the `cookieDir` files to start fresh. |
 | `PyiCloudAPIResponseException` | Generic iCloud API error | Has `.reason: string` and `.code?: string \| number`. |
 
 ```ts
@@ -265,9 +271,19 @@ try {
   `contacts` are getters; `photos()`, `reminders()`, `findMyiPhone()` are
   `await`ed methods. `auth.trustedDevices` is a getter that returns a Promise.
 - **Session persistence:** cookies + session/trust tokens are written to
-  `cookieDir` (default `<tmpdir>/jsicloud/<user>`). Set a stable `cookieDir` so
-  trust survives restarts and Apple stops emailing codes. The `clientId` is
-  persisted there too.
+  `cookieDir` (default = a durable per-user state dir — Linux
+  `~/.local/state/jsicloud`, macOS `~/Library/Application Support/jsicloud`,
+  Windows `%LOCALAPPDATA%\jsicloud`; `<tmpdir>/jsicloud` fallback when headless).
+  This is durable on purpose so trust survives restarts and Apple stops emailing
+  codes; the `clientId` is persisted there too. Override `cookieDir` to pin the
+  location.
+- **Encryption at rest (default ON):** the `.session` and `.cookies.json` files
+  are encrypted with AES-256-GCM (`encrypt: true`). The key comes from
+  `encryptionKeyFile` (base64 32-byte key), else the OS keychain, else a freshly
+  generated key stored in the keychain. Existing plaintext files are migrated
+  transparently (no re-login). For cron/headless, use `encryptionKeyFile` since
+  the keychain is usually unavailable; `encrypt: false` keeps plaintext for
+  debugging. A wrong key throws `PyiCloudSessionDecryptionException`.
 - **China mainland:** set `chinaMainland: true` to use `.com.cn` AUTH/HOME/SETUP
   hosts. The OAuth widget/redirect stays global — that is correct, do not change.
 - **`verify: false`** disables TLS verification — testing only, never production.
@@ -291,7 +307,7 @@ try {
 ## Full API cheat-sheet (compact)
 
 `IcloudAuthService`
-- `static create(options, secrets): Promise<IcloudAuthService>`
+- `static create(options, secrets, sessionKey?): Promise<IcloudAuthService>` (optional `sessionKey: SessionKeyService` defaults to a real instance)
 - `authenticate(opts?): Promise<void>` · `getWebserviceUrl(key): string`
 - getters: `requires2fa` · `requires2sa` · `isTrustedSession` · `withFamily` · `user` · `data` · `params`
 - `trustedDevices: Promise<...[]>` (getter→Promise)
@@ -312,6 +328,11 @@ try {
 `values()`, `all`, `refreshClient()`. `AppleDevice` — `location()`,
 `status(additional?)`, `playSound(subject?)`, `displayMessage(opts?)`,
 `lostDevice(opts)`, `data`.
+
+`SessionKeyService` (at-rest encryption key mgmt) — `generateKey()` → `Buffer`,
+`getKeyFromKeychain(account)`, `storeKeyInKeychain(account, key)`,
+`keyExistsInKeychain(account)`, `readKeyFile(path)`, `resolveKey({accountName, encrypt, encryptionKeyFile?})`.
+`SessionCipher` — `new SessionCipher(key32)`; `encrypt(str)` → `Buffer`, `decrypt(buf)` → `string`.
 
 `AccountService` — `devices()`, `family()`, `storage()`.
 `CalendarService` — `events(from?,to?)`, `getEventDetail(pguid,guid)`, `calendars()`, `usertz`.

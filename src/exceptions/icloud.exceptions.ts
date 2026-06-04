@@ -125,3 +125,22 @@ export class PyiCloudNoDevicesException extends PyiCloudException {
     Object.setPrototypeOf(this, PyiCloudNoDevicesException.prototype);
   }
 }
+
+/**
+ * Raised when an encrypted session/cookie file cannot be decrypted.
+ *
+ * The default message guides the user toward recovery because the failure is
+ * almost always operational (a wrong/rotated key or a truncated file) rather
+ * than a bug: either supply the matching key via `--encryption-key-file` or
+ * delete the file so the next login re-creates it from scratch.
+ */
+export class PyiCloudSessionDecryptionException extends PyiCloudException {
+  constructor(
+    message = 'Failed to decrypt the session file (wrong key or corrupted file). ' +
+      'Pass the correct key with --encryption-key-file, or delete the file to start fresh.',
+  ) {
+    super(message);
+    this.name = 'PyiCloudSessionDecryptionException';
+    Object.setPrototypeOf(this, PyiCloudSessionDecryptionException.prototype);
+  }
+}

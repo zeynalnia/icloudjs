@@ -37,6 +37,7 @@ factory, plus a `jsicloud` **command-line tool**.
 - [Command-line tool](#command-line-tool)
 - [Configuration](#configuration)
 - [Session & secret storage](#session--secret-storage)
+  - [Encryption at rest](#encryption-at-rest)
 - [Error handling](#error-handling)
 - [Examples & AI skill](#examples--ai-skill)
 - [Troubleshooting](#troubleshooting)
@@ -397,6 +398,8 @@ Every flag has a short and long form (short flags are case-sensitive).
 | `-c, --china-mainland` | Use the China-mainland (`.com.cn`) endpoints. |
 | `-n, --non-interactive` | Disable interactive prompts for the whole run. |
 | `-D, --delete-from-keyring` | Delete the stored password for this username, then continue to login. |
+| `--no-encrypt` | Store session & cookies as plaintext (debugging only); encryption is on by default. |
+| `-k, --encryption-key-file <path>` | Path to a base64-encoded 32-byte session-encryption key (overrides the keychain). |
 | `-l, --list` | Short listing for each device. |
 | `-L, --llist` | Detailed (full) listing for each device. |
 | `-o, --locate` | Refresh **and print** the location for each device (non-exclusive). |
@@ -453,6 +456,13 @@ jsicloud --username me@icloud.com --china-mainland --non-interactive --list
 
 # Forget a stored keyring password (then continue to a fresh login).
 jsicloud --username me@icloud.com --delete-from-keyring
+
+# Headless/cron: encrypt with an explicit key file (keychain usually unavailable).
+jsicloud --username me@icloud.com --non-interactive \
+  --encryption-key-file /etc/jsicloud/icloud.key --list
+
+# Store session & cookies as plaintext (debugging only).
+jsicloud --username me@icloud.com --no-encrypt --list
 ```
 
 ---
@@ -466,11 +476,13 @@ jsicloud --username me@icloud.com --delete-from-keyring
 |---|---|---|---|
 | `accountName` | `string` | **yes** | — (Apple ID / email). |
 | `password` | `string` | no | Resolved from the keyring by `accountName`; else interactive prompt. |
-| `cookieDir` | `string` | no | `<os.tmpdir()>/jsicloud/<os-username>` (created with mode `0o700`). |
+| `cookieDir` | `string` | no | Platform-appropriate per-user state dir (created mode `0o700`; token files inside written `0o600`): Linux `$XDG_STATE_HOME/jsicloud` (else `~/.local/state/jsicloud`), macOS `~/Library/Application Support/jsicloud`, Windows `%LOCALAPPDATA%\jsicloud`. Falls back to `<os.tmpdir()>/jsicloud` in headless envs. |
 | `chinaMainland` | `boolean` | no | `false`. When `true`, the AUTH/HOME/SETUP endpoints use `.com.cn`; the OAuth widget stays on the global host. |
 | `verify` | `boolean \| string` | no | `undefined`. `false` disables TLS verification — **testing only**. |
 | `clientId` | `string` | no | The persisted `session_data.client_id`, else a fresh `auth-<uuidv1>`. |
 | `userAgent` | `string` | no | The iCloud web client's Safari UA (`DEFAULT_USER_AGENT`). Sent on every request; Apple may `503` non-browser User-Agents. |
+| `encrypt` | `boolean` | no | `true` — encrypt the persisted session & cookies at rest. `false` = plaintext (debugging only). See [Encryption at rest](#encryption-at-rest). |
+| `encryptionKeyFile` | `string` | no | Path to a file holding a base64-encoded 32-byte key; overrides the keychain. When neither this nor a keychain key is set, a key is auto-created in the OS keychain. |
 
 > The auth service also exposes a read-only `withFamily` flag (Find My iPhone
 > commands default to operating across family devices). It is derived internally
@@ -552,12 +564,62 @@ and never call the `*InKeyring` methods.
   **byte-compatible** with Python `pyicloud`'s `.session` file.
 - `<name>.cookies.json` — the cookie jar.
 
+Both files are written with mode `0o600` (owner read/write only) and the
+default `cookieDir` is created with mode `0o700`, since both carry live auth
+tokens.
+
 On the next run, a persisted `session_token` lets `authenticate()` take the
 fast-path `validate` route and skip a full OAuth sign-in. A previously
 **trusted** session (`auth.isTrustedSession`) avoids re-prompting for a
 verification code; call `auth.trustSession()` to establish trust after a
 successful 2FA/2SA challenge. Persisting is automatic during the auth flow; the
 store also exposes `saveSessionData()`, `saveCookies()`, and `persistAll()`.
+
+### Encryption at rest
+
+The `.session` and `.cookies.json` files carry live auth tokens, so they are
+**encrypted at rest by default** (AES-256-GCM). Existing plaintext files are
+migrated transparently — read once as plaintext, then re-written encrypted on the
+next persist — so upgrading users are **not** forced to re-login.
+
+The 32-byte encryption key is resolved from the first available of three sources,
+in priority order:
+
+1. **An explicit base64 key file** — `encryptionKeyFile` (or the CLI's
+   `--encryption-key-file <path>`). Overrides the keychain.
+2. **The OS keychain** (via `keytar`, service `jsicloud://session-encryption-key`,
+   keyed by `accountName`).
+3. **Auto-generated and stored** — when neither of the above yields a key, a fresh
+   key is generated and saved to the OS keychain for next time.
+
+The key file holds a **base64-encoded 32-byte key** (a single line; surrounding
+whitespace is trimmed). Generate one with:
+
+```bash
+head -c 32 /dev/urandom | base64 > icloud.key
+```
+
+Then point at it:
+
+```ts
+const auth = await IcloudAuthService.create(
+  { accountName: 'me@icloud.com', password: 'pw', encryptionKeyFile: './icloud.key' },
+  new SecretsService(),
+);
+```
+
+To disable encryption entirely (plaintext at rest — **debugging only**), pass
+`encrypt: false` or the CLI's `--no-encrypt`.
+
+> **Cron / headless note.** In headless or `cron` environments the OS keychain is
+> usually unavailable (no D-Bus session / unlocked keyring), so the auto-generate
+> path cannot store a key. Prefer an explicit key file there: set
+> `encryptionKeyFile` (or pass `--encryption-key-file <path>` to the CLI) so the
+> same key is used on every run without touching the keychain.
+
+If a `.session`/`.cookies.json` file was written with a different key (or is
+corrupted), reading it throws `PyiCloudSessionDecryptionException` — pass the
+correct key (`--encryption-key-file`) or delete the file to start fresh.
 
 ---
 
@@ -572,7 +634,8 @@ PyiCloudException (extends Error)
 ├── PyiCloudFailedLoginException        ← SIBLING of the API exception, not a child
 ├── PyiCloud2SARequiredException
 ├── PyiCloudNoStoredPasswordAvailableException
-└── PyiCloudNoDevicesException
+├── PyiCloudNoDevicesException
+└── PyiCloudSessionDecryptionException     ← session/cookie decrypt failed (wrong key or corrupt)
 ```
 
 Each subclass sets `this.name` and fixes its prototype, so `instanceof` works
@@ -663,9 +726,10 @@ surfaces Apple's actual reason/code (e.g. `↳ Invalid email/password combinatio
     extend the throttle.
   - Sign in once at [icloud.com](https://www.icloud.com) in a real browser to
     clear any pending account/security prompt.
-  - Delete stale session/cookie state — remove the cookie directory
-    (`<tmpdir>/jsicloud/<os-username>/` by default, or your `cookieDir`) and try
-    again with a fresh session.
+  - Delete stale session/cookie state — remove the cookie directory (the
+    platform-appropriate per-user state dir by default, e.g.
+    `~/.local/state/jsicloud/` on Linux, or your `cookieDir`) and try again with
+    a fresh session.
 - **`-20101` / `Your Apple ID or password is incorrect`** — genuinely wrong
   credentials (or an account that requires action at icloud.com).
 

@@ -79,6 +79,9 @@ export async function makeAuthService(
     chinaMainland: overrides.chinaMainland,
     verify: overrides.verify,
     clientId: overrides.clientId,
+    // Default to plaintext so the auth/service suites never touch the real OS
+    // keychain via SessionKeyService.resolveKey (encryption has dedicated specs).
+    encrypt: overrides.encrypt ?? false,
   };
 
   const service = await IcloudAuthService.create(options, stubSecrets());

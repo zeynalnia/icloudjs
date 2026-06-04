@@ -18,6 +18,7 @@ import * as readline from 'readline/promises';
 
 import { IcloudAuthService } from '../auth/icloud-auth.service';
 import { SecretsService } from '../secrets/secrets.service';
+import { SessionKeyService } from '../secrets/session-key.service';
 import { CliApi, CliDeps, runCli } from './fmip-cli';
 
 /** Prompt for a single line of input on the controlling terminal. */
@@ -42,18 +43,29 @@ async function confirm(question: string): Promise<boolean> {
 /** Build the real dependency bundle and run the CLI. */
 async function main(argv: string[]): Promise<void> {
   const secrets = new SecretsService();
+  const sessionKey = new SessionKeyService();
 
   const deps: CliDeps = {
     createService: async (
       username: string,
       password: string,
       china: boolean,
+      encrypt: boolean,
+      encryptionKeyFile: string,
     ): Promise<CliApi> =>
       IcloudAuthService.create(
-        { accountName: username, password, chinaMainland: china },
+        {
+          accountName: username,
+          password,
+          chinaMainland: china,
+          encrypt,
+          encryptionKeyFile: encryptionKeyFile || undefined,
+        },
         secrets,
+        sessionKey,
       ),
     secrets,
+    sessionKey,
     stdin: prompt,
     confirm,
     exit: (code: number): never => process.exit(code),

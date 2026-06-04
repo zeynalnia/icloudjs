@@ -98,6 +98,21 @@ function makeApi(
   return { api, devices };
 }
 
+/**
+ * A session-encryption-key fake: jest spies on the three members the CLI uses.
+ *
+ * `keyExistsInKeychain` defaults to TRUE so the existing CLI tests (which do not
+ * exercise the key-bootstrap branch) skip the prompt entirely. The encryption
+ * specs override it per-test.
+ */
+function makeSessionKey(opts: { keyExists?: boolean } = {}) {
+  return {
+    keyExistsInKeychain: jest.fn(async () => opts.keyExists ?? true),
+    generateKey: jest.fn(() => Buffer.alloc(32, 7)),
+    storeKeyInKeychain: jest.fn(async () => undefined),
+  };
+}
+
 /** A keyring fake: in-memory store + jest spies on every method. */
 function makeSecrets(initial: Record<string, string> = {}) {
   const store: Record<string, string> = { ...initial };
@@ -123,6 +138,7 @@ function makeDeps(
     api?: CliApi;
     createService?: CliDeps['createService'];
     secrets?: ReturnType<typeof makeSecrets>;
+    sessionKey?: ReturnType<typeof makeSessionKey>;
     stdinResponses?: string[];
     confirmResult?: boolean;
     interactive?: boolean;
@@ -134,13 +150,16 @@ function makeDeps(
   err: string[];
   exit: jest.Mock;
   secrets: ReturnType<typeof makeSecrets>;
+  sessionKey: ReturnType<typeof makeSessionKey>;
   stdin: jest.Mock;
   confirm: jest.Mock;
   writeFile: jest.Mock;
+  createService: jest.Mock;
 } {
   const out: string[] = [];
   const err: string[] = [];
   const secrets = opts.secrets ?? makeSecrets();
+  const sessionKey = opts.sessionKey ?? makeSessionKey();
   const responses = [...(opts.stdinResponses ?? [])];
   const stdin = jest.fn(async () => responses.shift() ?? '');
   const confirm = jest.fn(async () => opts.confirmResult ?? false);
@@ -150,13 +169,24 @@ function makeDeps(
   // AND let the function return; we record the code instead of killing Jest.
   const exit = jest.fn((_code: number) => undefined as never);
 
+  // The fake createService now takes the two extra encryption params; defaulting
+  // them keeps the body trivial while still being callable with all five args.
   const createService =
-    opts.createService ??
-    jest.fn(async () => opts.api ?? makeApi([]).api);
+    (opts.createService as jest.Mock) ??
+    jest.fn(
+      async (
+        _username: string,
+        _password: string,
+        _china: boolean,
+        _encrypt = true,
+        _encryptionKeyFile = '',
+      ) => opts.api ?? makeApi([]).api,
+    );
 
   const deps: CliDeps = {
-    createService,
+    createService: createService as never,
     secrets: secrets as never,
+    sessionKey: sessionKey as never,
     stdin,
     confirm,
     exit: exit as unknown as (code: number) => never,
@@ -166,7 +196,18 @@ function makeDeps(
     writeFile: writeFile as never,
   };
 
-  return { deps, out, err, exit, secrets, stdin, confirm, writeFile };
+  return {
+    deps,
+    out,
+    err,
+    exit,
+    secrets,
+    sessionKey,
+    stdin,
+    confirm,
+    writeFile,
+    createService: createService as jest.Mock,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -190,7 +231,15 @@ describe('runCli — exit codes', () => {
     });
     await runCli(['--password', 'pw'], deps);
     expect(stdin).toHaveBeenCalledWith('iCloud username (Apple ID): ');
-    expect(createService).toHaveBeenCalledWith('typed@user.com', 'pw', false);
+    // Encryption defaults: encrypt=true, no key-file. The two extra params are
+    // forwarded after the original (username, password, china) triple.
+    expect(createService).toHaveBeenCalledWith(
+      'typed@user.com',
+      'pw',
+      false,
+      true,
+      '',
+    );
     expect(exit).toHaveBeenCalledWith(0);
   });
 
@@ -904,8 +953,155 @@ describe('runCli — --outputfile', () => {
 
     expect(writeFile).toHaveBeenCalledTimes(1);
     const [filename, contents] = writeFile.mock.calls[0];
-    // <name>.trim().toLowerCase() + .fmip_snapshot.json
-    expect(filename).toBe('iphone de quentin.fmip_snapshot.json');
+    // <name>.trim().toLowerCase(), then sanitized (non-[a-z0-9._-] chars → '_'
+    // for path-traversal hardening), + .fmip_snapshot.json
+    expect(filename).toBe('iphone_de_quentin.fmip_snapshot.json');
     expect(JSON.parse(contents as string)).toEqual(DEVICE_A);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// At-rest session encryption — key bootstrap & flag forwarding
+// ---------------------------------------------------------------------------
+
+describe('runCli — session-encryption key bootstrap', () => {
+  it('--no-encrypt skips the key prompt and forwards encrypt=false', async () => {
+    const a = makeDevice(DEVICE_A);
+    const { api } = makeApi([a]);
+    // A fresh keychain (no key) — but with --no-encrypt the bootstrap must be
+    // skipped entirely, so keyExistsInKeychain is never consulted.
+    const sessionKey = makeSessionKey({ keyExists: false });
+    const { deps, exit, confirm, createService } = makeDeps({
+      api,
+      sessionKey,
+    });
+
+    await runCli(
+      ['--username', 'u@x.com', '--password', 'pw', '--no-encrypt'],
+      deps,
+    );
+
+    expect(sessionKey.keyExistsInKeychain).not.toHaveBeenCalled();
+    expect(sessionKey.storeKeyInKeychain).not.toHaveBeenCalled();
+    expect(confirm).not.toHaveBeenCalledWith(
+      expect.stringContaining('session-encryption key'),
+    );
+    expect(createService).toHaveBeenCalledWith(
+      'u@x.com',
+      'pw',
+      false,
+      false,
+      '',
+    );
+    expect(exit).toHaveBeenCalledWith(0);
+  });
+
+  it('missing key + interactive + confirm-yes stores a freshly generated key', async () => {
+    const a = makeDevice(DEVICE_A);
+    const { api } = makeApi([a]);
+    const sessionKey = makeSessionKey({ keyExists: false });
+    const { deps, exit, confirm } = makeDeps({
+      api,
+      sessionKey,
+      confirmResult: true,
+    });
+
+    await runCli(['--username', 'u@x.com', '--password', 'pw'], deps);
+
+    expect(sessionKey.keyExistsInKeychain).toHaveBeenCalledWith('u@x.com');
+    expect(confirm).toHaveBeenCalledWith(
+      'No session-encryption key found for u@x.com. Create one and store it in your keychain?',
+    );
+    expect(sessionKey.generateKey).toHaveBeenCalledTimes(1);
+    expect(sessionKey.storeKeyInKeychain).toHaveBeenCalledWith(
+      'u@x.com',
+      sessionKey.generateKey.mock.results[0].value,
+    );
+    expect(exit).toHaveBeenCalledWith(0);
+  });
+
+  it('missing key + interactive + confirm-no exits 2 without storing a key', async () => {
+    const a = makeDevice(DEVICE_A);
+    const { api } = makeApi([a]);
+    const sessionKey = makeSessionKey({ keyExists: false });
+    const { deps, exit, err, createService } = makeDeps({
+      api,
+      sessionKey,
+      confirmResult: false,
+    });
+
+    await runCli(['--username', 'u@x.com', '--password', 'pw'], deps);
+
+    expect(sessionKey.storeKeyInKeychain).not.toHaveBeenCalled();
+    expect(createService).not.toHaveBeenCalled();
+    expect(err.join('\n')).toContain('No encryption key');
+    expect(exit).toHaveBeenCalledWith(2);
+  });
+
+  it('does NOT prompt when a key already exists in the keychain', async () => {
+    const a = makeDevice(DEVICE_A);
+    const { api } = makeApi([a]);
+    const sessionKey = makeSessionKey({ keyExists: true });
+    const { deps, exit, confirm } = makeDeps({ api, sessionKey });
+
+    await runCli(['--username', 'u@x.com', '--password', 'pw'], deps);
+
+    expect(sessionKey.keyExistsInKeychain).toHaveBeenCalledWith('u@x.com');
+    expect(confirm).not.toHaveBeenCalledWith(
+      expect.stringContaining('session-encryption key'),
+    );
+    expect(sessionKey.storeKeyInKeychain).not.toHaveBeenCalled();
+    expect(exit).toHaveBeenCalledWith(0);
+  });
+
+  it('non-interactive missing key does NOT prompt (create() auto-creates later)', async () => {
+    const a = makeDevice(DEVICE_A);
+    const { api } = makeApi([a]);
+    const sessionKey = makeSessionKey({ keyExists: false });
+    const { deps, exit, confirm, createService } = makeDeps({
+      api,
+      sessionKey,
+      interactive: false,
+    });
+
+    await runCli(['--username', 'u@x.com', '--password', 'pw'], deps);
+
+    expect(confirm).not.toHaveBeenCalled();
+    expect(sessionKey.storeKeyInKeychain).not.toHaveBeenCalled();
+    // Login still proceeds — the key is auto-created downstream by resolveKey.
+    expect(createService).toHaveBeenCalledWith('u@x.com', 'pw', false, true, '');
+    expect(exit).toHaveBeenCalledWith(0);
+  });
+
+  it('--encryption-key-file skips the keychain bootstrap and is forwarded to createService', async () => {
+    const a = makeDevice(DEVICE_A);
+    const { api } = makeApi([a]);
+    const sessionKey = makeSessionKey({ keyExists: false });
+    const { deps, exit, createService } = makeDeps({ api, sessionKey });
+
+    await runCli(
+      [
+        '--username',
+        'u@x.com',
+        '--password',
+        'pw',
+        '--encryption-key-file',
+        '/tmp/key.b64',
+      ],
+      deps,
+    );
+
+    // With an explicit key file, the keychain bootstrap branch is skipped...
+    expect(sessionKey.keyExistsInKeychain).not.toHaveBeenCalled();
+    expect(sessionKey.storeKeyInKeychain).not.toHaveBeenCalled();
+    // ...and the path is forwarded to createService for resolveKey to read.
+    expect(createService).toHaveBeenCalledWith(
+      'u@x.com',
+      'pw',
+      false,
+      true,
+      '/tmp/key.b64',
+    );
+    expect(exit).toHaveBeenCalledWith(0);
   });
 });

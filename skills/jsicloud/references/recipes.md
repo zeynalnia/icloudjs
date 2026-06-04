@@ -388,3 +388,60 @@ try {
 Reminders: `PyiCloudFailedLoginException` is a **sibling** of
 `PyiCloudAPIResponseException` (catching one never catches the other), and wrong
 2FA/2SA verification codes return `false` rather than throwing.
+
+---
+
+## 12. Encryption at rest (session & cookie files)
+
+The persisted `.session` and `.cookies.json` files are **encrypted by default**
+(AES-256-GCM). The 32-byte key is resolved in priority order: an explicit base64
+key file → the OS keychain → auto-generated-and-stored in the keychain. Legacy
+plaintext files are migrated transparently (read once as plaintext, re-written
+encrypted on the next persist), so upgrading users never have to re-login.
+
+```ts
+import { IcloudAuthService, SecretsService } from 'jsicloud';
+
+// Default: encrypt with a key from the keychain (auto-created on first run).
+const auth = await IcloudAuthService.create(
+  { accountName: 'me@icloud.com', password: 'pw' },
+  new SecretsService(),
+);
+```
+
+The key file holds a **base64-encoded 32-byte key** on a single line
+(surrounding whitespace is trimmed). Generate one with
+`head -c 32 /dev/urandom | base64 > icloud.key`, then point at it (it overrides
+the keychain):
+
+```ts
+const auth = await IcloudAuthService.create(
+  { accountName: 'me@icloud.com', password: 'pw', encryptionKeyFile: './icloud.key' },
+  new SecretsService(),
+);
+```
+
+Disable encryption (plaintext at rest — **debugging only**):
+
+```ts
+const auth = await IcloudAuthService.create(
+  { accountName: 'me@icloud.com', password: 'pw', encrypt: false },
+  new SecretsService(),
+);
+```
+
+Reading a file written with a different key (or a corrupted file) throws
+`PyiCloudSessionDecryptionException` — pass the correct key or delete the file.
+
+**CLI flags** — `--no-encrypt` stores plaintext (debugging only) and
+`-k, --encryption-key-file <path>` supplies a base64-encoded 32-byte key:
+
+```bash
+# Headless/cron: the OS keychain is usually unavailable, so use an explicit key
+# file (the same key is reused on every run without touching the keychain).
+jsicloud --username me@icloud.com --non-interactive \
+  --encryption-key-file /etc/jsicloud/icloud.key --list
+
+# Plaintext at rest (debugging only).
+jsicloud --username me@icloud.com --no-encrypt --list
+```

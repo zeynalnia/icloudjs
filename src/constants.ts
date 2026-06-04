@@ -91,6 +91,13 @@ export const VIDEO_VERSION_LOOKUP: Record<string, string> = {
  */
 export const KEYRING_SERVICE = 'pyicloud://icloud-password';
 
+/**
+ * Keyring service name for the session-encryption key. Distinct from
+ * {@link KEYRING_SERVICE} so the at-rest encryption key lives in its own
+ * keychain entry and never collides with the stored iCloud password.
+ */
+export const SESSION_KEY_KEYRING_SERVICE = 'jsicloud://session-encryption-key';
+
 /** A single smart-folder definition (ported from `photos.py:13-122`). */
 export interface SmartFolderDef {
   obj_type: string;

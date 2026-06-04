@@ -53,6 +53,9 @@ In the same consuming project:
 npm i jsicloud
 ```
 
-Note: `jsicloud` depends on the native `keytar` module (OS keychain). On headless
-Linux install `libsecret` build deps, or pass `password` explicitly so the
-keychain is never read. See `SKILL.md` → Install for details.
+Note: `jsicloud` depends on the native `keytar` module (OS keychain). The
+keychain holds the account `password` (when omitted) and the at-rest
+session-encryption key (encryption is on by default). On headless Linux install
+`libsecret` build deps, or — for cron/headless — pass `password` explicitly and
+set `encryptionKeyFile` (a base64 key file) so the keychain is never read. See
+`SKILL.md` → Install for details.

@@ -2,7 +2,8 @@
  * Public barrel for the `jsicloud` package.
  *
  * Re-exports the NestJS module, the infrastructure services
- * (`IcloudAuthService`, `SecretsService`, `IcloudHttpService`, `SessionStore`),
+ * (`IcloudAuthService`, `SecretsService`, `IcloudHttpService`, `SessionStore`,
+ * `SessionKeyService`, `SessionCipher`),
  * every per-service class (Drive, Ubiquity, Photos, Account, FindMyiPhone,
  * Calendar, Contacts, Reminders) plus their nodes/value objects, all public
  * interfaces/types, the constants, and the full exception hierarchy.
@@ -29,6 +30,8 @@ export {
   IcloudRequestOptions,
 } from './session/icloud-http.service';
 export { SessionStore } from './session/session-store';
+export { SessionCipher } from './session/session-cipher';
+export { SessionKeyService } from './secrets/session-key.service';
 export {
   RaiseErrorContext,
   extractReasonCode,

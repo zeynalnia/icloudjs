@@ -390,7 +390,14 @@ describe('authenticate — validate-token reuse', () => {
     // router (installed by beforeEach) drives the real create() factory, and the
     // SessionStore persists session_token + trust_token + cookies to `dir`. ---
     const run1 = await IcloudAuthService.create(
-      { accountName: REQUIRES_2FA_USER, password: VALID_PASSWORD, cookieDir: dir },
+      {
+        accountName: REQUIRES_2FA_USER,
+        password: VALID_PASSWORD,
+        cookieDir: dir,
+        // Plaintext at rest so this suite never touches the real OS keychain
+        // (SessionKeyService.resolveKey); encryption has its own dedicated specs.
+        encrypt: false,
+      },
       stubSecrets(),
     );
     expect(run1.requires2fa).toBe(true); // challenged on first login
@@ -442,7 +449,14 @@ describe('authenticate — validate-token reuse', () => {
       });
 
     const run2 = await IcloudAuthService.create(
-      { accountName: REQUIRES_2FA_USER, password: VALID_PASSWORD, cookieDir: dir },
+      {
+        accountName: REQUIRES_2FA_USER,
+        password: VALID_PASSWORD,
+        cookieDir: dir,
+        // Plaintext at rest so this suite never touches the real OS keychain
+        // (SessionKeyService.resolveKey); encryption has its own dedicated specs.
+        encrypt: false,
+      },
       stubSecrets(),
     );
 
@@ -536,6 +550,7 @@ describe('China mode (hosts .com.cn) + GLOBAL OAuth redirect', () => {
         password: VALID_PASSWORD,
         cookieDir: dir,
         chinaMainland: true,
+        encrypt: false,
       },
       stubSecrets(),
     );
@@ -589,6 +604,7 @@ describe('withFamily option', () => {
         password: VALID_PASSWORD,
         cookieDir: dir,
         withFamily: false,
+        encrypt: false,
       },
       stubSecrets(),
     );

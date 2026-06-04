@@ -90,12 +90,18 @@ Key facts that shape these examples:
 
 3. **Trusting persists across runs.** After a successful validation,
    `auth.trustSession()` asks Apple to remember this client; the cookie/session
-   files are written to `<os-tmpdir>/jsicloud/<os-username>` (override with the
-   `cookieDir` option). On the next run a valid trusted session is reused
-   silently — so the **NestJS module in example `02` can authenticate at
-   bootstrap without an interactive prompt**. The practical recipe for servers:
-   run example `01` once interactively to establish trust, then let the module
-   reuse it.
+   files are written to a durable per-user state dir (Linux
+   `~/.local/state/jsicloud`, macOS `~/Library/Application Support/jsicloud`,
+   Windows `%LOCALAPPDATA%\jsicloud`; `<os-tmpdir>/jsicloud` fallback when
+   headless — override with the `cookieDir` option). Those files are
+   **encrypted at rest** by default (AES-256-GCM); the key is taken from
+   `encryptionKeyFile` (a base64 32-byte key), else the OS keychain, else a
+   generated key stored in the keychain. On the next run a valid trusted session
+   is reused silently — so the **NestJS module in example `02` can authenticate
+   at bootstrap without an interactive prompt**. The practical recipe for
+   servers: run example `01` once interactively to establish trust, then let the
+   module reuse it. For **cron/headless**, set `encryptionKeyFile` (the keychain
+   is usually unavailable) or `encrypt: false`.
 
 4. **`trustedDevices` is a getter that returns a `Promise`** — write
    `await auth.trustedDevices`, not `auth.trustedDevices()`.

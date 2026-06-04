@@ -43,11 +43,13 @@ import { AccountLoginData } from '../interfaces/login-response.interface';
 import { IcloudModuleOptions } from '../interfaces/options.interface';
 import { Webservices } from '../interfaces/webservices.interface';
 import { SecretsService } from '../secrets/secrets.service';
+import { SessionKeyService } from '../secrets/session-key.service';
 import {
   Endpoints,
   IcloudAuthLike,
   IcloudHttpService,
 } from '../session/icloud-http.service';
+import { SessionCipher } from '../session/session-cipher';
 import { SessionStore } from '../session/session-store';
 
 // Service classes (constructed lazily by the accessors below). These are plain
@@ -134,6 +136,7 @@ export class IcloudAuthService implements IcloudAuthLike {
   static async create(
     options: IcloudModuleOptions,
     secrets: SecretsService,
+    sessionKey: SessionKeyService = new SessionKeyService(),
   ): Promise<IcloudAuthService> {
     // 1. CN vs global endpoints.
     const base = options.chinaMainland ? ENDPOINTS.china : ENDPOINTS.global;
@@ -152,16 +155,25 @@ export class IcloudAuthService implements IcloudAuthLike {
     // 3. Sanitise the account name to filename-safe word characters.
     const sanitized = options.accountName.replace(/[^A-Za-z0-9_]/g, '');
 
-    // 4. Cookie directory (default <tmpdir>/jsicloud/<os-username>, mode 0o700).
-    const cookieDir =
-      options.cookieDir ??
-      path.join(os.tmpdir(), 'jsicloud', IcloudAuthService.osUsername());
+    // 4. Cookie directory (default = platform-appropriate per-user state dir,
+    //    mode 0o700). See defaultCookieDir() for the platform layout.
+    const cookieDir = options.cookieDir ?? IcloudAuthService.defaultCookieDir();
     await fs.mkdir(cookieDir, { recursive: true, mode: 0o700 });
 
-    // 5. Load the persisted session-data + cookie jar.
-    const store = await SessionStore.load(cookieDir, sanitized);
+    // 5. Resolve the at-rest encryption key (encryption is default-on; `null`
+    //    means plaintext) and build the cipher. A `null` key yields no cipher,
+    //    so SessionStore behaves byte-identically to the old plaintext path.
+    const key = await sessionKey.resolveKey({
+      accountName: options.accountName,
+      encrypt: options.encrypt !== false,
+      encryptionKeyFile: options.encryptionKeyFile,
+    });
+    const cipher = key ? new SessionCipher(key) : undefined;
 
-    // 6. client_id: explicit option → persisted → fresh `auth-<uuidv1>`. Persist
+    // 6. Load the persisted session-data + cookie jar.
+    const store = await SessionStore.load(cookieDir, sanitized, cipher);
+
+    // 7. client_id: explicit option → persisted → fresh `auth-<uuidv1>`. Persist
     //    it back so trusted-session continuity survives restarts.
     const clientId =
       options.clientId ??
@@ -170,7 +182,7 @@ export class IcloudAuthService implements IcloudAuthLike {
     store.sessionData.client_id = clientId;
     await store.saveSessionData();
 
-    // 7. HTTP layer with default Origin/Referer + a browser-like User-Agent
+    // 8. HTTP layer with default Origin/Referer + a browser-like User-Agent
     //    (Apple 503s non-browser clients; see DEFAULT_USER_AGENT).
     const http = new IcloudHttpService(store, endpoints, {
       Origin: endpoints.HOME,
@@ -178,7 +190,7 @@ export class IcloudAuthService implements IcloudAuthLike {
       'User-Agent': options.userAgent ?? DEFAULT_USER_AGENT,
     });
 
-    // 8. Construct the orchestrator and wire it into the HTTP layer (for the
+    // 9. Construct the orchestrator and wire it into the HTTP layer (for the
     //    findme retry re-auth and the 2SA-aware error normalization).
     const svc = new IcloudAuthService(
       { accountName: options.accountName, password },
@@ -190,22 +202,42 @@ export class IcloudAuthService implements IcloudAuthLike {
     );
     http.bindAuth(svc);
 
-    // 9. Authenticate (network).
+    // 10. Authenticate (network).
     await svc.authenticate();
 
-    // 10. FIX #1 — populate the shared params bag.
+    // 11. FIX #1 — populate the shared params bag.
     svc.populateParams();
 
     return svc;
   }
 
-  /** OS username for the default cookie directory (tolerant of headless envs). */
-  private static osUsername(): string {
+  /**
+   * Default cookie/session directory: a stable, per-user, OS-appropriate state
+   * directory. We use durable per-user state (not <tmpdir>) so the trusted
+   * session survives reboots/tmp cleanup, and rely on the home dir being
+   * per-user (no os-username segment needed). Tolerant of headless envs where
+   * os.homedir() may throw or be empty — falls back to <tmpdir>/jsicloud.
+   */
+  private static defaultCookieDir(): string {
     try {
-      return os.userInfo().username || 'default';
+      const home = os.homedir();
+      if (home) {
+        if (process.platform === 'win32') {
+          const base =
+            process.env.LOCALAPPDATA || path.join(home, 'AppData', 'Local');
+          return path.join(base, 'jsicloud');
+        }
+        if (process.platform === 'darwin') {
+          return path.join(home, 'Library', 'Application Support', 'jsicloud');
+        }
+        const base =
+          process.env.XDG_STATE_HOME || path.join(home, '.local', 'state');
+        return path.join(base, 'jsicloud');
+      }
     } catch {
-      return 'default';
+      // fall through to the tmpdir fallback below.
     }
+    return path.join(os.tmpdir(), 'jsicloud');
   }
 
   // -------------------------------------------------------------------------

@@ -14,7 +14,14 @@ export interface IcloudModuleOptions {
   password?: string;
   /**
    * Directory for the cookie jar and `<account>.session` file.
-   * Defaults to `<tmpdir>/jsicloud/<os-username>` (created mode 0o700).
+   *
+   * Defaults to a stable, per-user, platform-appropriate state directory
+   * (created mode 0o700; the token files inside are written mode 0o600):
+   * - Linux/other: `$XDG_STATE_HOME/jsicloud` (else `~/.local/state/jsicloud`)
+   * - macOS: `~/Library/Application Support/jsicloud`
+   * - Windows: `%LOCALAPPDATA%\jsicloud` (else `~/AppData/Local/jsicloud`)
+   * In headless environments without a resolvable home directory it falls back
+   * to `<tmpdir>/jsicloud`.
    */
   cookieDir?: string;
   /**
@@ -49,4 +56,20 @@ export interface IcloudModuleOptions {
    * non-browser User-Agents with `503 Service Temporarily Unavailable`.
    */
   userAgent?: string;
+  /**
+   * Whether to encrypt the persisted session (`.session`) and cookie jar
+   * (`.cookies.json`) files at rest. Defaults to `true`; set `false` for
+   * plaintext at rest (debugging only). When encryption is on and no
+   * {@link encryptionKeyFile} is given, a 32-byte key is auto-created in the OS
+   * keychain on first use. Existing plaintext files are transparently migrated
+   * (read once as plaintext, re-written encrypted on the next persist).
+   */
+  encrypt?: boolean;
+  /**
+   * Path to a file holding a base64-encoded 32-byte session-encryption key.
+   * When set, this key overrides the OS keychain (useful for headless/cron runs
+   * where the keychain is unavailable). When neither this nor a keychain key is
+   * present and {@link encrypt} is on, a key is auto-created in the OS keychain.
+   */
+  encryptionKeyFile?: string;
 }

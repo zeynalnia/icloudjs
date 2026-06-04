@@ -30,10 +30,12 @@
  * `--lostmode`.
  */
 import { promises as fs } from 'fs';
+import * as path from 'path';
 import { Command } from 'commander';
 
 import { PyiCloudFailedLoginException } from '../exceptions/icloud.exceptions';
 import { SecretsService } from '../secrets/secrets.service';
+import { SessionKeyService } from '../secrets/session-key.service';
 import { AppleDevice } from '../services/findmyiphone.service';
 
 /**
@@ -142,9 +144,13 @@ export interface CliDeps {
     username: string,
     password: string,
     china: boolean,
+    encrypt: boolean,
+    encryptionKeyFile: string,
   ) => Promise<CliApi>;
   /** Keyring wrapper (port of `utils` keyring helpers). */
   secrets: SecretsService;
+  /** Session-encryption key manager (keychain bootstrap for at-rest encryption). */
+  sessionKey: SessionKeyService;
   /** Read a line from the user (password / 2FA code / device index prompt). */
   stdin: (question: string) => Promise<string>;
   /** Yes/no confirmation prompt (e.g. "Save password in keyring?"). */
@@ -184,6 +190,8 @@ interface CliOptions {
   lostMessage: string;
   outputToFile: boolean;
   json: boolean;
+  encrypt: boolean;
+  encryptionKeyFile: string;
 }
 
 /**
@@ -268,6 +276,15 @@ export function buildProgram(): Command {
       '-j, --json',
       'Output machine-readable JSON instead of plain text.',
       false,
+    )
+    .option(
+      '--no-encrypt',
+      'Store session & cookies as plaintext (debugging only).',
+    )
+    .option(
+      '-k, --encryption-key-file <path>',
+      'Path to a base64-encoded 32-byte session-encryption key.',
+      '',
     );
   return program;
 }
@@ -307,6 +324,8 @@ function parseArgs(argv: string[]): CliOptions {
     lostMessage: opts.lostmessage ?? '',
     outputToFile: !!opts.outputfile,
     json: !!opts.json,
+    encrypt: opts.encrypt !== false,
+    encryptionKeyFile: opts.encryptionKeyFile ?? '',
   };
 }
 
@@ -383,8 +402,45 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<void> {
       return void deps.exit(2);
     }
 
+    // Bootstrap the session-encryption key BEFORE building the session. When
+    // encryption is on and no explicit key file is given, the key lives in the
+    // OS keychain; in an interactive run we ask before silently creating one so
+    // the user knows a keychain entry is about to appear. A non-interactive run
+    // falls through to create()/resolveKey, which auto-creates the key silently
+    // (the library default). Keyed by the SAME trimmed username passed below.
+    const trimmedUsername = username.trim();
+    if (options.encrypt && !options.encryptionKeyFile) {
+      const hasKey =
+        await deps.sessionKey.keyExistsInKeychain(trimmedUsername);
+      if (!hasKey && interactive) {
+        if (
+          await deps.confirm(
+            'No session-encryption key found for ' +
+              trimmedUsername +
+              '. Create one and store it in your keychain?',
+          )
+        ) {
+          await deps.sessionKey.storeKeyInKeychain(
+            trimmedUsername,
+            deps.sessionKey.generateKey(),
+          );
+        } else {
+          deps.errlog(
+            'No encryption key; re-run with --no-encrypt for plaintext or --encryption-key-file <path>.',
+          );
+          return void deps.exit(2);
+        }
+      }
+    }
+
     try {
-      api = await deps.createService(username.trim(), password.trim(), china);
+      api = await deps.createService(
+        trimmedUsername,
+        password.trim(),
+        china,
+        options.encrypt,
+        options.encryptionKeyFile,
+      );
 
       // Offer to persist a freshly-typed password.
       if (
@@ -492,8 +548,17 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<void> {
     }
 
     if (options.outputToFile) {
-      const name = String(dev.content.name).trim().toLowerCase();
-      await writeFile(`${name}.fmip_snapshot.json`, JSON.stringify(dev.content));
+      // WHY: the device name is attacker-influenced data; using it verbatim in a
+      // file path lets a name containing '/' or '..' write outside the cwd
+      // (path traversal, CWE-22). Reduce to a basename and strip everything but
+      // safe filename characters, with a non-empty fallback.
+      const rawName = String(dev.content.name).trim().toLowerCase();
+      const safeName =
+        path.basename(rawName).replace(/[^a-z0-9._-]/gi, '_') || 'device';
+      await writeFile(
+        `${safeName}.fmip_snapshot.json`,
+        JSON.stringify(dev.content),
+      );
     }
 
     const contents = dev.content;

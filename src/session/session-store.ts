@@ -29,6 +29,7 @@ import { CookieJar } from 'tough-cookie';
 type SerializedCookieJar = CookieJar.Serialized;
 
 import { SessionData } from '../interfaces/session-data.interface';
+import { SessionCipher } from './session-cipher';
 
 export class SessionStore {
   /** Mutable handshake state; mutated in place by the HTTP response interceptor. */
@@ -43,16 +44,25 @@ export class SessionStore {
   /** Absolute path of the `<name>.cookies.json` jar file. */
   private readonly cookiePath: string;
 
+  /**
+   * Optional at-rest cipher. When `undefined` the store reads/writes plaintext
+   * exactly as before; when present, files are written encrypted and read with
+   * transparent legacy-plaintext migration (see {@link load}).
+   */
+  private readonly cipher?: SessionCipher;
+
   private constructor(
     sessionData: SessionData,
     jar: CookieJar,
     sessionPath: string,
     cookiePath: string,
+    cipher?: SessionCipher,
   ) {
     this.sessionData = sessionData;
     this.jar = jar;
     this.sessionPath = sessionPath;
     this.cookiePath = cookiePath;
+    this.cipher = cipher;
   }
 
   /**
@@ -64,21 +74,63 @@ export class SessionStore {
    *
    * Both the `.session` JSON and the `.cookies.json` jar are loaded best-effort:
    * any read/parse error is swallowed and the corresponding piece starts empty.
+   *
+   * When `cipher` is supplied, an on-disk blob that {@link SessionCipher.looksEncrypted}
+   * is decrypted (a decrypt failure PROPAGATES so a wrong key is loud), while a
+   * legacy plaintext file is still read as-is — the transparent migration path
+   * that lets it be re-written encrypted on the next persist.
    */
-  static async load(dir: string, sanitizedName: string): Promise<SessionStore> {
+  static async load(
+    dir: string,
+    sanitizedName: string,
+    cipher?: SessionCipher,
+  ): Promise<SessionStore> {
     const sessionPath = path.join(dir, `${sanitizedName}.session`);
     const cookiePath = path.join(dir, `${sanitizedName}.cookies.json`);
 
-    const sessionData = await SessionStore.loadSessionData(sessionPath);
-    const jar = await SessionStore.loadJar(cookiePath);
+    const sessionData = await SessionStore.loadSessionData(sessionPath, cipher);
+    const jar = await SessionStore.loadJar(cookiePath, cipher);
 
-    return new SessionStore(sessionData, jar, sessionPath, cookiePath);
+    return new SessionStore(sessionData, jar, sessionPath, cookiePath, cipher);
+  }
+
+  /**
+   * Read a file as a Buffer and turn it into a UTF-8 string, decrypting when the
+   * blob is encrypted and a `cipher` is present.
+   *
+   *   - missing file -> `undefined` (caller starts from empty state)
+   *   - cipher present AND the blob looks encrypted -> decrypt (failure PROPAGATES)
+   *   - else (no cipher, or a legacy plaintext blob) -> `buf.toString('utf-8')`,
+   *     which is the transparent plaintext→encrypted migration path.
+   */
+  private static async readDecoded(
+    filePath: string,
+    cipher?: SessionCipher,
+  ): Promise<string | undefined> {
+    let buf: Buffer;
+    try {
+      buf = await fs.readFile(filePath);
+    } catch {
+      // Missing or unreadable — caller falls back to empty state.
+      return undefined;
+    }
+    if (cipher && SessionCipher.looksEncrypted(buf)) {
+      // A wrong key / tampered file must be loud — do NOT swallow.
+      return cipher.decrypt(buf);
+    }
+    return buf.toString('utf-8');
   }
 
   /** Read + parse the `.session` JSON; tolerate missing/corrupt files. */
-  private static async loadSessionData(sessionPath: string): Promise<SessionData> {
+  private static async loadSessionData(
+    sessionPath: string,
+    cipher?: SessionCipher,
+  ): Promise<SessionData> {
+    const raw = await SessionStore.readDecoded(sessionPath, cipher);
+    if (raw === undefined) {
+      return {};
+    }
     try {
-      const raw = await fs.readFile(sessionPath, 'utf-8');
       const parsed = JSON.parse(raw);
       // Guard against a file that parses to a non-object (e.g. `null`, `[]`).
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
@@ -86,19 +138,27 @@ export class SessionStore {
       }
       return {};
     } catch {
-      // Missing or corrupt — start from an empty handshake bag.
+      // Corrupt plaintext body — start from an empty handshake bag.
       return {};
     }
   }
 
   /** Deserialize the tough-cookie jar JSON; tolerate missing/corrupt files. */
-  private static async loadJar(cookiePath: string): Promise<CookieJar> {
+  private static async loadJar(
+    cookiePath: string,
+    cipher?: SessionCipher,
+  ): Promise<CookieJar> {
+    const raw = await SessionStore.readDecoded(cookiePath, cipher);
+    if (raw === undefined) {
+      // Missing file — fresh jar.
+      return new CookieJar();
+    }
+
     let serialized: SerializedCookieJar | undefined;
     try {
-      const raw = await fs.readFile(cookiePath, 'utf-8');
       serialized = JSON.parse(raw) as SerializedCookieJar;
     } catch {
-      // Missing or unparseable JSON — fresh jar.
+      // Unparseable JSON — fresh jar.
       return new CookieJar();
     }
 
@@ -120,10 +180,13 @@ export class SessionStore {
 
   /** Persist `sessionData` as JSON to `<dir>/<name>.session`. */
   async saveSessionData(): Promise<void> {
+    const json = JSON.stringify(this.sessionData);
+    // mode 0o600: these files hold live auth tokens — owner-only on creation.
+    // With a cipher we write the encrypted Buffer; otherwise the plaintext JSON.
     await fs.writeFile(
       this.sessionPath,
-      JSON.stringify(this.sessionData),
-      'utf-8',
+      this.cipher ? this.cipher.encrypt(json) : json,
+      { encoding: 'utf-8', mode: 0o600 },
     );
   }
 
@@ -138,7 +201,14 @@ export class SessionStore {
         resolve(json);
       });
     });
-    await fs.writeFile(this.cookiePath, JSON.stringify(serialized), 'utf-8');
+    const json = JSON.stringify(serialized);
+    // mode 0o600: the cookie jar carries the auth cookies — owner-only on creation.
+    // With a cipher we write the encrypted Buffer; otherwise the plaintext JSON.
+    await fs.writeFile(
+      this.cookiePath,
+      this.cipher ? this.cipher.encrypt(json) : json,
+      { encoding: 'utf-8', mode: 0o600 },
+    );
   }
 
   /**
