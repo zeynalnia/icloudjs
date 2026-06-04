@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-06-04
+
 ### Fixed
 
 - CLI diagnostics no longer pollute stdout. The library's logs are routed to
@@ -67,6 +69,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Find My iPhone command-line tool and npm publishing via GitHub OIDC Trusted
   Publishing.
 
-[Unreleased]: https://github.com/zeynalnia/icloudjs/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/zeynalnia/icloudjs/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/zeynalnia/icloudjs/compare/v1.1.0...v2.0.0
 [1.1.0]: https://github.com/zeynalnia/icloudjs/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/zeynalnia/icloudjs/releases/tag/v1.0.0
