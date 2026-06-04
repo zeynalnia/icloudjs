@@ -102,7 +102,7 @@ All eight iCloud services are ported, reachable from a single authenticated
   Windows). On Linux CI/headless boxes you may need `libsecret-1-dev` and a
   D-Bus session, or you can always pass `password` explicitly to avoid the
   keyring entirely.
-- Peer-style runtime deps: `@nestjs/common` / `@nestjs/core` `^10.4.0`.
+- Peer-style runtime deps: `@nestjs/common` / `@nestjs/core` `^11.0.0`.
 
 ---
 
