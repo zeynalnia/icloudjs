@@ -32,7 +32,7 @@ import {
 npm i jsicloud
 ```
 
-- Node **>= 18** (the package targets `node >=18`).
+- Node **>= 22** (the package targets `node >=22`).
 - Peer/runtime deps it pulls in: `@nestjs/common`, `@nestjs/core`,
   `reflect-metadata`, `rxjs`, `axios`, `tough-cookie`, `keytar`, `uuid`.
 - **`keytar` is a NATIVE module** (OS keychain bindings). It needs build tools
