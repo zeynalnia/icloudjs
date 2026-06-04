@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- CLI diagnostics no longer pollute stdout. The library's logs are routed to
+  **stderr** and silenced by default, so `jsicloud --json` (and `--list`) emit
+  only the data on stdout — e.g. `jsicloud --json > devices.json` is now clean.
+  Pass `-v`/`--verbose` to print diagnostic logs (still to stderr).
+
 ### Changed
 
 - **BREAKING: minimum Node is now `>=22`** (was `>=18`). Upgraded
